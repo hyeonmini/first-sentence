@@ -908,6 +908,11 @@ body.typing .passage-card:hover {
   gap: 12px;
 }
 
+.muted-btn.active-toggle {
+  color: var(--accent);
+  font-weight: 500;
+}
+
 .platform-tabs {
   display: flex;
   gap: 16px;

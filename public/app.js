@@ -146,6 +146,7 @@ const state = {
   mode: 'write', // 'write' | 'distill'
   platform: 'threads', // 'threads' (500) | 'x' (280)
   segments: [],
+  hookInverted: false,
 
   // 다중 AI 프로바이더 상태
   aiProvider: 'gemini', // 'gemini' | 'openai' | 'claude'
@@ -1850,6 +1851,7 @@ function prepareDistillSegments() {
 
   const savedSet = new Set((w && Array.isArray(w.crystals)) ? w.crystals : []);
 
+  state.hookInverted = false;
   state.segments = rawLines.map(text => ({
     text,
     picked: selected
@@ -1860,7 +1862,11 @@ function prepareDistillSegments() {
 
 function getEffectiveDistillLines() {
   const picked = state.segments.filter(s => s.picked).map(s => s.text);
-  return picked.length > 0 ? picked : state.segments.map(s => s.text);
+  const baseLines = picked.length > 0 ? picked : state.segments.map(s => s.text);
+  if (state.hookInverted && baseLines.length >= 2) {
+    return [baseLines[baseLines.length - 1], ...baseLines.slice(0, -1)];
+  }
+  return baseLines;
 }
 
 function savePickedCrystals() {
@@ -1939,7 +1945,18 @@ function renderDistillView() {
   }
 
   const activeLines = getEffectiveDistillLines();
-  $('invertHookBtn').classList.toggle('hidden', activeLines.length < 2);
+  if (activeLines.length < 2 && state.hookInverted) {
+    state.hookInverted = false;
+  }
+  const invBtn = $('invertHookBtn');
+  if (invBtn) {
+    invBtn.classList.toggle('hidden', activeLines.length < 2);
+    invBtn.classList.toggle('active-toggle', Boolean(state.hookInverted));
+    invBtn.textContent = state.hookInverted ? '원래 순서로 ↺' : '끝문장을 첫 줄로 ↑';
+    invBtn.title = state.hookInverted
+      ? '원래 작성한 문단 순서로 되돌립니다'
+      : '마지막 결론 문단을 맨 첫 줄로 올립니다';
+  }
   $('metaHint').textContent = pickedCount > 0 ? `${pickedCount}단락 발췌됨` : '전체 발행';
 
   const useSig = !$('sigToggle') || $('sigToggle').checked;
@@ -2179,17 +2196,13 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   $('invertHookBtn').addEventListener('click', () => {
-    const pickedAny = state.segments.some(s => s.picked);
-    const targetIndices = state.segments
-      .map((s, idx) => ((pickedAny ? s.picked : true) ? idx : -1))
-      .filter(idx => idx !== -1);
+    const picked = state.segments.filter(s => s.picked);
+    const count = picked.length > 0 ? picked.length : state.segments.length;
+    if (count < 2) return;
 
-    if (targetIndices.length < 2) return;
-    const lastIdx = targetIndices[targetIndices.length - 1];
-    const [moved] = state.segments.splice(lastIdx, 1);
-    state.segments.splice(targetIndices[0], 0, moved);
+    state.hookInverted = !state.hookInverted;
     renderDistillView();
-    toast('마지막 단락을 맨 앞으로 올렸습니다');
+    toast(state.hookInverted ? '끝문장을 첫 줄로 올렸습니다' : '원래 문단 순서로 되돌렸습니다');
   });
 
   if ($('sigToggle')) {
