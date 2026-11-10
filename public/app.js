@@ -107,7 +107,7 @@ const PROVIDER_META = {
   gemini: {
     label: 'Gemini',
     badge: '무료 추천',
-    desc: 'Google AI Studio에서 무료로 10초 만에 발급 가능 · 빠르고 유려한 산문 직조',
+    desc: 'Google AI Studio에서 무료로 10초 만에 발급 · 빠르고 자연스러운 일상 문장 제안',
     placeholder: 'Gemini API 키 붙여넣기 (AIza...)',
     keyUrl: 'https://aistudio.google.com/apikey',
     linkText: 'Gemini 무료 키 발급 ↗'
@@ -115,7 +115,7 @@ const PROVIDER_META = {
   openai: {
     label: 'OpenAI',
     badge: '',
-    desc: 'OpenAI Platform 키 사용 · 군더더기 없이 담백하고 정교한 에세이 호흡',
+    desc: 'OpenAI Platform 키 사용 · 군더더기 없이 담백하고 깔끔한 에세이 호흡',
     placeholder: 'OpenAI API 키 붙여넣기 (sk-...)',
     keyUrl: 'https://platform.openai.com/api-keys',
     linkText: 'OpenAI 키 발급 ↗'
@@ -123,7 +123,7 @@ const PROVIDER_META = {
   claude: {
     label: 'Claude',
     badge: '',
-    desc: 'Anthropic Console 키 사용 · 깊이 있는 인문학적 비유와 문학적 결 재현',
+    desc: 'Anthropic Console 키 사용 · 잔잔한 산문 호흡과 섬세한 비유 표현',
     placeholder: 'Claude API 키 붙여넣기 (sk-ant-...)',
     keyUrl: 'https://console.anthropic.com/settings/keys',
     linkText: 'Claude 키 발급 ↗'
@@ -1366,13 +1366,13 @@ function renderAiKeyBanner() {
     banner.innerHTML = `
       <div class="ai-benefit-box">
         <div class="ai-benefit-head">
-          <span class="ai-benefit-lead">✦ AI 키를 연결하면 빈 종이가 함께 생각하는 서재가 됩니다</span>
+          <span class="ai-benefit-lead">✦ AI 키를 연결하면 처음 쓰는 글도 막힘없이 이어집니다</span>
           <button type="button" id="openKeyEditorBtn" class="passage-btn primary">AI 키 연결하기 (Gemini · OpenAI · Claude)</button>
         </div>
         <ul class="ai-benefit-list">
-          <li><strong>내 말투 그대로 다음 한 호흡 직조</strong> — 쓰던 글의 맥락과 종결어미(~다/~요)를 읽어 자연스럽게 이어질 2~3문장을 지어 줍니다.</li>
-          <li><strong>4가지 사유 방향 전환</strong> — 단순 글귀 인용을 넘어 <em>공명 · 반론 · 문학적 비유 · 결론 매듭</em>으로 생각을 넓혀 줍니다.</li>
-          <li><strong>3축 문체 조율 & 무료 키 지원</strong> — 농도(담백·서정·현학)와 호흡 길이를 즉시 바꿀 수 있으며, <strong>Gemini 키는 무료</strong>로 발급됩니다.</li>
+          <li><strong>보통 사람의 말투로 잇는 다음 문장</strong> — 쓰던 글의 맥락과 어미(~다/~요)에 맞춰, 꾸밈없이 자연스러운 1~2문장을 제안해 터치 한 번으로 이어 적게 돕습니다.</li>
+          <li><strong>막힐 땐 4가지 방향 전환</strong> — 단순 글귀 인용을 넘어 <em>공명 · 반론 · 비유 · 매듭</em>으로 생각을 넓히고 글의 마무리까지 자연스럽게 여며 줍니다.</li>
+          <li><strong>내 호흡에 맞춘 문체 조율 & 무료 키</strong> — 문체 농도(일상·산문·사유)와 길이(1문장~3문장), 어미를 즉시 바꿀 수 있으며 <strong>Gemini 키는 무료</strong>로 발급됩니다.</li>
         </ul>
       </div>
     `;
@@ -1397,9 +1397,9 @@ function renderAiKeyBanner() {
     <div class="ai-editor-guide">
       <div class="ai-editor-guide-title">✦ AI 연결 시 활성화되는 기능</div>
       <div class="ai-editor-guide-items">
-        <span>· 내 문체·어미 맞춤 다음 단락(2~3문장) 직조</span>
-        <span>· 공명 / 반론 / 비유 / 매듭 4방향 사유 확장</span>
-        <span>· 담백·서정·현학 농도 및 호흡 길이 실시간 조율</span>
+        <span>· 본문 맥락·어미(~다/~요)에 맞춘 담백한 다음 1~2문장 제안</span>
+        <span>· 공명 · 반론 · 비유 · 매듭 4가지 방향으로 생각 확장·마무리</span>
+        <span>· 농도(일상·산문·사유) · 호흡 길이 · 어미 실시간 조율</span>
       </div>
     </div>
     <div class="provider-tabs">
