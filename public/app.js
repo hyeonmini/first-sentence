@@ -161,6 +161,9 @@ const state = {
   weaveLoading: false,
   weaveReqSeq: 0,
   lastWovenContext: null,
+  closedComplete: false,
+  lastClosedParagraph: '',
+  replacingClose: false,
   recentAuthors: [],
   autoWeaveTimer: null,
   styleTunerOpen: false,
@@ -650,6 +653,9 @@ async function selectWriting(id) {
   state.anchorPassage = null;
   state.wovenDraft = null;
   state.lastWovenContext = null;
+  state.closedComplete = false;
+  state.lastClosedParagraph = '';
+  state.replacingClose = false;
   state.weaveDirection = 'reson';
   resetRelationalSeen();
 
@@ -684,6 +690,9 @@ async function createNewWriting() {
     state.anchorPassage = null;
     state.wovenDraft = null;
     state.lastWovenContext = null;
+    state.closedComplete = false;
+    state.lastClosedParagraph = '';
+    state.replacingClose = false;
     state.weaveDirection = 'reson';
     state.relationMode = 'fresh';
     state.relationLabel = '';
@@ -1161,14 +1170,29 @@ function renderStyleTuner() {
 // ============================================================================
 // 주력 모드: 한 호흡(2~3문장) 직조 & 내 문체 조각 엔진 (Gemini · OpenAI · Claude)
 // ============================================================================
-async function requestWeave(direction = 'reson', { forceNew = false, styleReweave = false } = {}) {
+async function requestWeave(direction = 'reson', { forceNew = false, styleReweave = false, replaceCloseTarget = '' } = {}) {
   if (!state.hasAiKey) return;
 
   const ed = $('editor');
   const rawVal = ed ? ed.value : '';
-  const trimmed = rawVal.trim();
+  let contextText = rawVal;
+  if (replaceCloseTarget && rawVal.trim().endsWith(replaceCloseTarget)) {
+    const idx = rawVal.lastIndexOf(replaceCloseTarget);
+    if (idx !== -1) {
+      contextText = rawVal.slice(0, idx).replace(/\s+$/g, '');
+    }
+  }
+  const trimmed = contextText.trim();
   const effectiveDir = trimmed ? direction : 'opening';
   if (trimmed) state.weaveDirection = effectiveDir;
+
+  if (!styleReweave) {
+    state.closedComplete = false;
+    if (!replaceCloseTarget) {
+      state.replacingClose = false;
+      state.lastClosedParagraph = '';
+    }
+  }
 
   const reqId = ++state.weaveReqSeq;
   state.weaveLoading = true;
@@ -1189,7 +1213,7 @@ async function requestWeave(direction = 'reson', { forceNew = false, styleReweav
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         direction: effectiveDir,
-        editorText: rawVal,
+        editorText: contextText,
         avoidAuthors: state.recentAuthors.slice(-8),
         styleOptions: state.weaveStyle,
         currentDraft: (styleReweave && state.wovenDraft) ? state.wovenDraft : null
@@ -1259,6 +1283,10 @@ function renderWeaveCard() {
     relEl.textContent = `${item.status} · ${provName}`;
     quoteEl.textContent = item.text;
     sourceEl.textContent = item.sub;
+  } else if (state.closedComplete) {
+    relEl.textContent = '✦ 매듭 완료 · 글이 여미어졌습니다';
+    quoteEl.textContent = '마지막 문장이 본문에 더해졌습니다. 내 말투로 가볍게 다듬은 뒤 발행하거나, 아래에서 다른 마무리 문장으로 바꿔볼 수 있습니다.';
+    sourceEl.textContent = '';
   } else if (state.wovenDraft) {
     relEl.textContent = WEAVE_LABELS[state.wovenDraft.direction] || '다음 한 호흡';
     quoteEl.textContent = state.wovenDraft.paragraph;
@@ -1277,14 +1305,25 @@ function renderWeaveCard() {
 
   const bubbleInsertBtn = $('bubbleInsertBtn');
   if (bubbleInsertBtn) {
-    bubbleInsertBtn.textContent = isBlankEditor
-      ? '+ 이 단락으로 시작 ↵'
-      : (state.wovenDraft?.appendMode === 'inline' ? '+ 문장 이어 붙이기 ↵' : '+ 본문에 잇기 ↵');
-    bubbleInsertBtn.disabled = state.weaveLoading || !state.wovenDraft;
-    bubbleInsertBtn.onclick = e => {
-      e.stopPropagation();
-      insertWovenDraft();
-    };
+    if (state.closedComplete && !state.weaveLoading) {
+      bubbleInsertBtn.textContent = '발행 화면으로 →';
+      bubbleInsertBtn.disabled = false;
+      bubbleInsertBtn.onclick = e => {
+        e.stopPropagation();
+        setMode('distill');
+      };
+    } else {
+      bubbleInsertBtn.textContent = isBlankEditor
+        ? '+ 이 단락으로 시작 ↵'
+        : state.replacingClose
+          ? '+ 이 매듭으로 바꾸기 ↵'
+          : (state.wovenDraft?.appendMode === 'inline' ? '+ 문장 이어 붙이기 ↵' : '+ 본문에 잇기 ↵');
+      bubbleInsertBtn.disabled = state.weaveLoading || !state.wovenDraft;
+      bubbleInsertBtn.onclick = e => {
+        e.stopPropagation();
+        insertWovenDraft();
+      };
+    }
   }
 
   btnsEl.innerHTML = '';
@@ -1317,7 +1356,12 @@ function renderWeaveCard() {
       b.onclick = e => {
         e.stopPropagation();
         document.body.classList.remove('typing');
-        requestWeave(d.key, { forceNew: state.weaveDirection === d.key });
+        if (d.key === 'close' && (state.closedComplete || state.replacingClose) && state.lastClosedParagraph) {
+          state.replacingClose = true;
+          requestWeave('close', { forceNew: true, replaceCloseTarget: state.lastClosedParagraph });
+        } else {
+          requestWeave(d.key, { forceNew: state.weaveDirection === d.key });
+        }
       };
       optsWrap.appendChild(b);
     }
@@ -1326,12 +1370,21 @@ function renderWeaveCard() {
   const reweaveBtn = document.createElement('button');
   reweaveBtn.type = 'button';
   reweaveBtn.className = 'passage-btn';
-  reweaveBtn.textContent = isBlankEditor ? '다른 첫 단락 ↻' : '다시 짓기 ↻';
+  reweaveBtn.textContent = isBlankEditor
+    ? '다른 첫 단락 ↻'
+    : (state.closedComplete || state.replacingClose)
+      ? '다른 매듭 ↻'
+      : '다시 짓기 ↻';
   reweaveBtn.onmousedown = e => e.preventDefault();
   reweaveBtn.onclick = e => {
     e.stopPropagation();
     document.body.classList.remove('typing');
-    requestWeave(isBlankEditor ? 'opening' : state.weaveDirection, { forceNew: true });
+    if ((state.closedComplete || state.replacingClose) && state.lastClosedParagraph) {
+      state.replacingClose = true;
+      requestWeave('close', { forceNew: true, replaceCloseTarget: state.lastClosedParagraph });
+    } else {
+      requestWeave(isBlankEditor ? 'opening' : state.weaveDirection, { forceNew: true });
+    }
   };
   optsWrap.appendChild(reweaveBtn);
 
@@ -1347,15 +1400,22 @@ function renderGhostContinuation() {
   const nextBtn = $('ghostNextBtn');
   if (!wrap || !txtEl || !addBtn || !nextBtn) return;
 
+  if (state.hasAiKey && state.closedComplete) {
+    wrap.classList.add('hidden');
+    return;
+  }
+
   const ed = $('editor');
   const isBlankEditor = !(ed && ed.value.trim());
 
   let ghostSentence = '';
   let useAiDraft = false;
 
-  if (state.hasAiKey && state.wovenDraft && state.wovenDraft.paragraph && !state.weaveLoading) {
-    ghostSentence = state.wovenDraft.paragraph;
-    useAiDraft = true;
+  if (state.hasAiKey) {
+    if (state.wovenDraft && state.wovenDraft.paragraph && !state.weaveLoading) {
+      ghostSentence = state.wovenDraft.paragraph;
+      useAiDraft = true;
+    }
   } else if (state.plainContinuation && state.plainContinuation.sentence) {
     ghostSentence = state.plainContinuation.sentence;
     useAiDraft = false;
@@ -1368,7 +1428,11 @@ function renderGhostContinuation() {
 
   wrap.classList.remove('hidden');
   txtEl.textContent = ghostSentence;
-  addBtn.textContent = isBlankEditor ? '+ 첫 문장으로 시작 ↵' : '+ 터치하여 잇기 ↵';
+  addBtn.textContent = isBlankEditor
+    ? '+ 첫 문장으로 시작 ↵'
+    : (useAiDraft && state.replacingClose)
+      ? '+ 이 매듭으로 바꾸기 ↵'
+      : '+ 터치하여 잇기 ↵';
 
   const triggerInsert = e => {
     if (e) e.stopPropagation();
@@ -1390,7 +1454,11 @@ function renderGhostContinuation() {
     e.stopPropagation();
     document.body.classList.remove('typing');
     if (state.hasAiKey) {
-      requestWeave(isBlankEditor ? 'opening' : state.weaveDirection, { forceNew: true });
+      if (state.replacingClose && state.lastClosedParagraph) {
+        requestWeave('close', { forceNew: true, replaceCloseTarget: state.lastClosedParagraph });
+      } else {
+        requestWeave(isBlankEditor ? 'opening' : state.weaveDirection, { forceNew: true });
+      }
     } else {
       fetchNextPlainContinuation();
     }
@@ -1455,7 +1523,11 @@ function insertWovenDraft() {
   const ed = $('editor');
   const raw = ed.value;
 
-  if (!raw.trim() || draft.appendMode === 'start') {
+  if (state.replacingClose && state.lastClosedParagraph && raw.trim().endsWith(state.lastClosedParagraph)) {
+    const idx = raw.lastIndexOf(state.lastClosedParagraph);
+    const beforeClose = raw.slice(0, idx).replace(/\s+$/g, '');
+    ed.value = beforeClose ? `${beforeClose}\n\n${draft.paragraph}` : draft.paragraph;
+  } else if (!raw.trim() || draft.appendMode === 'start') {
     ed.value = draft.paragraph;
   } else if (draft.appendMode === 'inline') {
     const base = raw.replace(/[ \t]+$/g, '');
@@ -1475,10 +1547,18 @@ function insertWovenDraft() {
   scheduleSave();
 
   if (draft.direction !== 'close') {
+    state.closedComplete = false;
+    state.replacingClose = false;
+    state.lastClosedParagraph = '';
     state.weaveDirection = 'reson';
     requestWeave('reson', { forceNew: false });
   } else {
-    toast('결론 단락을 이었습니다. 내 문체로 자유롭게 다듬어보세요');
+    state.wovenDraft = null;
+    state.closedComplete = true;
+    state.replacingClose = false;
+    state.lastClosedParagraph = draft.paragraph;
+    renderWeaveCard();
+    toast('글의 매듭이 지어졌습니다. 내 말투로 다듬은 뒤 발행해보세요');
   }
 }
 
@@ -2090,6 +2170,14 @@ window.addEventListener('DOMContentLoaded', () => {
     updateWriteMeta();
     renderEchoBox();
     scheduleSave();
+
+    if (state.closedComplete || state.replacingClose) {
+      if (!state.lastClosedParagraph || !ed.value.trim().endsWith(state.lastClosedParagraph)) {
+        state.closedComplete = false;
+        state.replacingClose = false;
+        state.lastClosedParagraph = '';
+      }
+    }
 
     if (state.hasAiKey) {
       scheduleAutoWeaveAfterEdit();
