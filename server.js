@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { DatabaseSync } = require('node:sqlite');
 const { syncAllPassagesToDb } = require('./corpus/importer');
-const { recommendPassage } = require('./corpus/recommender');
+const { recommendPassage, recommendPlainContinuation } = require('./corpus/recommender');
 const { weaveNextParagraph, verifyProviderKey } = require('./corpus/ai_weaver');
 const {
   runPeriodicPassageUpdate,
@@ -823,6 +823,15 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req);
       const result = recommendPassage(db, body || {});
       return sendJson(res, 200, result);
+    }
+
+    if (pathname === '/api/continuations/next' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const cont = recommendPlainContinuation({
+        editorText: body?.editorText || '',
+        excludeTexts: body?.excludeTexts || []
+      });
+      return sendJson(res, 200, cont);
     }
 
     if (pathname === '/api/passages/reload' && req.method === 'POST') {

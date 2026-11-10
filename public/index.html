@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=16" />
+  <link rel="stylesheet" href="/styles.css?v=17" />
   <script>
     (function () {
       var pref = localStorage.getItem('dw_theme_pref') || 'auto';
@@ -63,13 +63,22 @@
           id="editor"
           class="editor"
           rows="1"
-          placeholder="당신이 아는 가장 진실한 문장 단 하나만 먼저 적어 내려가거나, 아래 첫 단락으로 시작해보세요..."
+          placeholder="첫 줄을 직접 적어 내려가거나, 아래 희미한 문장을 터치해 시작해보세요..."
           autocomplete="off"
           autocorrect="off"
           autocapitalize="off"
           spellcheck="false"
           autofocus
         ></textarea>
+
+        <!-- 본문 안(커서 바로 아래)에 희미하게 비치는 다음 일상 문장 (터치 시 본문에 바로 추가) -->
+        <div id="ghostLineWrap" class="ghost-line-wrap hidden">
+          <span id="ghostLineText" class="ghost-line-text" role="button" tabindex="0" title="터치하면 본문에 바로 이어 붙여집니다"></span>
+          <span class="ghost-line-tools">
+            <button id="ghostAddBtn" class="ghost-tool-btn add" type="button">+ 터치하여 잇기 ↵</button>
+            <button id="ghostNextBtn" class="ghost-tool-btn next" type="button" title="다른 이어질 문장 보기">다른 문장 ↻</button>
+          </span>
+        </div>
 
         <!-- 노트 아래 조용히 펼쳐지는 사유의 말풍선 & 그 아래 선택 그룹핑 -->
         <aside id="passageCard" class="passage-card">
@@ -183,6 +192,6 @@
   <!-- 하단 문학적 토스트 팝업 -->
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="/app.js?v=16"></script>
+  <script src="/app.js?v=17"></script>
 </body>
 </html>

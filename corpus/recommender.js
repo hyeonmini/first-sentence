@@ -5,6 +5,7 @@ const {
   extractAuthorFromSource,
   inferLineage
 } = require('./concept_graph');
+const { recommendPlainContinuation } = require('./plain_continuations');
 
 function hydrateRow(row) {
   if (!row) return null;
@@ -219,6 +220,10 @@ function recommendPassage(db, opts = {}) {
 
   const currentId = Number(opts.currentId || -1);
   const excludeSet = new Set(Array.isArray(opts.excludeIds) ? opts.excludeIds.map(Number) : []);
+  const plainContinuation = recommendPlainContinuation({
+    editorText,
+    excludeTexts: opts.excludeContinuations || []
+  });
 
   const allRows = db.prepare('SELECT * FROM passages').all().map(hydrateRow);
   const totalCount = allRows.length;
@@ -277,6 +282,7 @@ function recommendPassage(db, opts = {}) {
       anchor,
       mode: 'same_concept',
       relationLabel: `${relPrefix} · ${sharedConcept}`,
+      plainContinuation,
       totalCount,
       resetSeen
     };
@@ -319,6 +325,7 @@ function recommendPassage(db, opts = {}) {
       anchor,
       mode: 'contra_concept',
       relationLabel: `${relPrefix} · ${matchedAnti}`,
+      plainContinuation,
       totalCount,
       resetSeen
     };
@@ -341,6 +348,7 @@ function recommendPassage(db, opts = {}) {
         anchor,
         mode: 'same_author',
         relationLabel: `${anchor.author}의 다른 글귀`,
+        plainContinuation,
         totalCount,
         resetSeen: false
       };
@@ -369,6 +377,7 @@ function recommendPassage(db, opts = {}) {
       anchor,
       mode: 'same_author',
       relationLabel: label,
+      plainContinuation,
       totalCount,
       resetSeen
     };
@@ -411,6 +420,7 @@ function recommendPassage(db, opts = {}) {
     anchor: resolvedAnchor,
     mode: 'fresh',
     relationLabel: freshRelLabel,
+    plainContinuation,
     totalCount,
     resetSeen
   };
@@ -418,5 +428,6 @@ function recommendPassage(db, opts = {}) {
 
 module.exports = {
   recommendPassage,
+  recommendPlainContinuation,
   extractLastQuotedAnchorFromText
 };

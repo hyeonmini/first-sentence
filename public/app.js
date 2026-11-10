@@ -186,6 +186,8 @@ const state = {
   relationLabel: '',
   lastArchiveContext: '',
   autoArchiveTimer: null,
+  plainContinuation: null,
+  seenContinuations: [],
   seenByMode: {
     fresh: new Set(),
     same_concept: new Set(),
@@ -655,6 +657,7 @@ async function selectWriting(id) {
   renderAiKeyBanner();
 
   if (state.hasAiKey) {
+    fetchNextPlainContinuation();
     await requestWeave(content.trim() ? 'reson' : 'opening', { forceNew: false });
   } else if (content.trim()) {
     await fetchArchivePassage({ mode: 'same_concept', anchor: null, animate: false });
@@ -691,6 +694,7 @@ async function createNewWriting() {
     renderAiKeyBanner();
 
     if (state.hasAiKey) {
+      fetchNextPlainContinuation();
       requestWeave('opening', { forceNew: false });
     } else {
       fetchArchivePassage({ mode: 'fresh', clearAnchor: true, animate: false });
@@ -1332,6 +1336,114 @@ function renderWeaveCard() {
 
   fetchGroup.appendChild(optsWrap);
   btnsEl.appendChild(fetchGroup);
+  renderGhostContinuation();
+}
+
+function renderGhostContinuation() {
+  const wrap = $('ghostLineWrap');
+  const txtEl = $('ghostLineText');
+  const addBtn = $('ghostAddBtn');
+  const nextBtn = $('ghostNextBtn');
+  if (!wrap || !txtEl || !addBtn || !nextBtn) return;
+
+  const ed = $('editor');
+  const isBlankEditor = !(ed && ed.value.trim());
+
+  let ghostSentence = '';
+  let useAiDraft = false;
+
+  if (state.hasAiKey && state.wovenDraft && state.wovenDraft.paragraph && !state.weaveLoading) {
+    ghostSentence = state.wovenDraft.paragraph;
+    useAiDraft = true;
+  } else if (state.plainContinuation && state.plainContinuation.sentence) {
+    ghostSentence = state.plainContinuation.sentence;
+    useAiDraft = false;
+  }
+
+  if (!ghostSentence) {
+    wrap.classList.add('hidden');
+    return;
+  }
+
+  wrap.classList.remove('hidden');
+  txtEl.textContent = ghostSentence;
+  addBtn.textContent = isBlankEditor ? '+ 첫 문장으로 시작 ↵' : '+ 터치하여 잇기 ↵';
+
+  const triggerInsert = e => {
+    if (e) e.stopPropagation();
+    document.body.classList.remove('typing');
+    if (useAiDraft) {
+      insertWovenDraft();
+    } else {
+      insertPlainContinuation();
+    }
+  };
+
+  txtEl.onmousedown = e => e.preventDefault();
+  txtEl.onclick = triggerInsert;
+  addBtn.onmousedown = e => e.preventDefault();
+  addBtn.onclick = triggerInsert;
+
+  nextBtn.onmousedown = e => e.preventDefault();
+  nextBtn.onclick = e => {
+    e.stopPropagation();
+    document.body.classList.remove('typing');
+    if (state.hasAiKey) {
+      requestWeave(isBlankEditor ? 'opening' : state.weaveDirection, { forceNew: true });
+    } else {
+      fetchNextPlainContinuation();
+    }
+  };
+}
+
+async function fetchNextPlainContinuation() {
+  const ed = $('editor');
+  const rawVal = ed ? ed.value : '';
+  const res = await apiFetch('/api/continuations/next', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      editorText: rawVal,
+      excludeTexts: state.seenContinuations.slice(-24)
+    })
+  });
+  if (!res.ok) return;
+  const cont = await res.json();
+  if (cont && cont.sentence) {
+    state.plainContinuation = cont;
+    if (!state.seenContinuations.includes(cont.sentence)) {
+      state.seenContinuations.push(cont.sentence);
+      if (state.seenContinuations.length > 30) state.seenContinuations.shift();
+    }
+    renderGhostContinuation();
+  }
+}
+
+function insertPlainContinuation() {
+  const cont = state.plainContinuation;
+  if (!cont || !cont.sentence) return;
+
+  clearTimeout(state.autoArchiveTimer);
+  const ed = $('editor');
+  const raw = ed.value;
+
+  if (!raw.trim() || cont.appendMode === 'start') {
+    ed.value = cont.sentence;
+  } else {
+    const base = raw.replace(/\s+$/g, '');
+    ed.value = `${base}\n\n${cont.sentence}`;
+  }
+
+  autoResizeTextarea(ed);
+  ed.focus();
+  ed.setSelectionRange(ed.value.length, ed.value.length);
+
+  state.lastArchiveContext = ed.value.trim();
+  updateWriteMeta();
+  renderEchoBox();
+  scheduleSave();
+
+  fetchArchivePassage({ mode: 'same_concept', anchor: null, animate: true });
 }
 
 function insertWovenDraft() {
@@ -1441,7 +1553,8 @@ async function fetchArchivePassage({ mode = 'fresh', clearAnchor = false, anchor
       editorText: rawVal,
       recentText,
       currentId: state.currentPassage ? state.currentPassage.id : -1,
-      excludeIds: Array.from(seenSet)
+      excludeIds: Array.from(seenSet),
+      excludeContinuations: state.seenContinuations.slice(-24)
     })
   });
 
@@ -1451,8 +1564,16 @@ async function fetchArchivePassage({ mode = 'fresh', clearAnchor = false, anchor
     state.passageCount = data.totalCount;
     updateDbCountLabel();
   }
+  if (data.plainContinuation && data.plainContinuation.sentence) {
+    state.plainContinuation = data.plainContinuation;
+    if (!state.seenContinuations.includes(data.plainContinuation.sentence)) {
+      state.seenContinuations.push(data.plainContinuation.sentence);
+      if (state.seenContinuations.length > 30) state.seenContinuations.shift();
+    }
+  }
   if (!data.passage) {
     $('passageCard').classList.add('hidden');
+    renderGhostContinuation();
     return;
   }
 
@@ -1610,6 +1731,8 @@ function renderArchivePassageCard(animate = false) {
       catGroup.appendChild(catOpts);
       catBar.appendChild(catGroup);
     }
+
+    renderGhostContinuation();
   };
 
   if (animate) {

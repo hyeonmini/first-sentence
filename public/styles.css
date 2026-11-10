@@ -217,6 +217,75 @@ body.typing .topbar:hover {
   color: var(--faint);
 }
 
+/* 본문 안에 희미하게 비치는 다음 일상 문장 (터치하여 바로 이어 쓰기) */
+.ghost-line-wrap {
+  margin-top: 10px;
+  padding: 6px 0 4px;
+  font-size: 17px;
+  line-height: 1.9;
+  letter-spacing: -0.01em;
+  word-break: keep-all;
+  transition: opacity 0.25s ease;
+}
+
+body.typing .ghost-line-wrap {
+  opacity: 0.22;
+}
+
+body.typing .ghost-line-wrap:hover {
+  opacity: 1;
+}
+
+.ghost-line-text {
+  color: var(--sub);
+  opacity: 0.48;
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  transition: opacity 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.ghost-line-text:hover,
+.ghost-line-text:active {
+  color: var(--text);
+  opacity: 0.86;
+  border-bottom-color: var(--line);
+}
+
+.ghost-line-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.ghost-tool-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-family: 'Noto Sans KR', -apple-system, sans-serif;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--sub);
+  opacity: 0.72;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.16s ease, color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.ghost-tool-btn.add {
+  color: var(--accent);
+}
+
+.ghost-tool-btn:hover,
+.ghost-tool-btn:active {
+  opacity: 1;
+  color: var(--text);
+  background: var(--btn-bg);
+}
+
 /* 노트 아래 조용히 펼쳐진 철학·종교·문학 한 구절 */
 .passage-card {
   margin-top: 26px;
