@@ -166,14 +166,14 @@ const state = {
   lastStyleChanged: null,
   weaveStyle: (() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('dw_weave_style') || '{}');
+      const saved = JSON.parse(localStorage.getItem('dw_weave_style_v2') || '{}');
       return {
-        tone: ['simple', 'lyrical', 'pedantic'].includes(saved.tone) ? saved.tone : 'lyrical',
+        tone: ['simple', 'lyrical', 'pedantic'].includes(saved.tone) ? saved.tone : 'simple',
         length: ['short', 'medium', 'long'].includes(saved.length) ? saved.length : 'medium',
         ending: ['auto', 'plain', 'polite'].includes(saved.ending) ? saved.ending : 'auto'
       };
     } catch (_) {
-      return { tone: 'lyrical', length: 'medium', ending: 'auto' };
+      return { tone: 'simple', length: 'medium', ending: 'auto' };
     }
   })(),
 
@@ -184,6 +184,8 @@ const state = {
   anchorPassage: null,
   relationMode: 'fresh',
   relationLabel: '',
+  lastArchiveContext: '',
+  autoArchiveTimer: null,
   seenByMode: {
     fresh: new Set(),
     same_concept: new Set(),
@@ -654,7 +656,7 @@ async function selectWriting(id) {
 
   if (state.hasAiKey) {
     await requestWeave(content.trim() ? 'reson' : 'opening', { forceNew: false });
-  } else if (QUOTE_LINE_RE.test(content)) {
+  } else if (content.trim()) {
     await fetchArchivePassage({ mode: 'same_concept', anchor: null, animate: false });
   } else {
     await fetchArchivePassage({ mode: 'fresh', clearAnchor: true, animate: false });
@@ -1000,18 +1002,18 @@ const STYLE_AXES = [
     key: 'tone',
     label: '농도',
     options: [
-      { val: 'simple', label: '심플·담백', short: '담백' },
-      { val: 'lyrical', label: '서정·은유', short: '서정' },
-      { val: 'pedantic', label: '현학·사유', short: '현학' }
+      { val: 'simple', label: '일상·담백', short: '담백' },
+      { val: 'lyrical', label: '차분한 산문', short: '산문' },
+      { val: 'pedantic', label: '깊은 사유', short: '사유' }
     ]
   },
   {
     key: 'length',
     label: '호흡',
     options: [
-      { val: 'short', label: '짧게 (1줄)', short: '짧게' },
-      { val: 'medium', label: '보통 (2~3)', short: '보통' },
-      { val: 'long', label: '길게 (3~4)', short: '길게' }
+      { val: 'short', label: '짧게 (1문장)', short: '1문장' },
+      { val: 'medium', label: '보통 (1~2문장)', short: '1~2문장' },
+      { val: 'long', label: '길게 (2~3문장)', short: '2~3문장' }
     ]
   },
   {
@@ -1027,56 +1029,56 @@ const STYLE_AXES = [
 
 const STYLE_CHANGE_WITTY = {
   'tone:simple': {
-    status: '✦ 군더더기 수식어를 덜어내는 중',
-    text: '화려한 형용사를 대패로 밀어내고, 헤밍웨이와 김훈처럼 담백한 뼈대만 남기고 있습니다…',
-    sub: '— 심플·담백 문체로 재직조 중'
+    status: '✦ 꾸밈없는 일상 말투로 다듬는 중',
+    text: '거창한 수식어를 덜어내고, 보통 사람이 일기장에 툭 적어 내려간 듯 자연스럽고 담백하게 고치고 있습니다…',
+    sub: '— 일상·담백 문체로 재조율 중'
   },
   'tone:lyrical': {
-    status: '✦ 행간에 은유와 빛깔을 스미게 하는 중',
-    text: '건조한 문장 사이에 문학적 심상과 잔잔한 여백의 리듬을 불어넣고 있습니다…',
-    sub: '— 서정·은유 문체로 재직조 중'
+    status: '✦ 차분한 산문 어조로 고르는 중',
+    text: '일상의 온기와 잔잔한 여운이 느껴지는 부드러운 산문 호흡으로 문장을 다듬고 있습니다…',
+    sub: '— 차분한 산문 문체로 재조율 중'
   },
   'tone:pedantic': {
-    status: '✦ 철학 서가의 각주를 끌어와 밀도를 높이는 중',
-    text: '발터 벤야민과 수전 손택의 비평 노트에서 정교한 개념어를 빌려 사유의 농도를 진하게 우려내고 있습니다…',
-    sub: '— 현학·사유 문체로 재직조 중'
+    status: '✦ 생각의 깊이를 한 겹 더하는 중',
+    text: '일상적인 흐름을 유지하면서도 생각의 이유를 차분히 짚어보는 에세이 문체로 다듬고 있습니다…',
+    sub: '— 깊은 사유 문체로 재조율 중'
   },
   'length:short': {
-    status: '✦ 세 문장을 한 줄의 아포리즘으로 압축하는 중',
-    text: '길게 흩어진 호흡을 단 한 문장의 밀도 높은 칼날로 벼려내고 있습니다…',
-    sub: '— 짧은 호흡(1문장)으로 재직조 중'
+    status: '✦ 짧고 간결한 한 문장으로 줄이는 중',
+    text: '군더더기를 덜어내고 핵심만 남은 깔끔한 한 문장으로 압축하고 있습니다…',
+    sub: '— 짧은 호흡(1문장)으로 재조율 중'
   },
   'length:medium': {
-    status: '✦ 가장 읽기 편안한 두세 문장으로 고르는 중',
-    text: '넘치지도 모자라지도 않은 에세이 한 호흡(2~3문장)으로 보폭을 맞추고 있습니다…',
-    sub: '— 보통 호흡(2~3문장)으로 재직조 중'
+    status: '✦ 부담 없는 1~2문장으로 고르는 중',
+    text: '처음 글을 쓸 때 가장 자연스럽게 이어 붙일 수 있는 짧은 한두 문장으로 다듬고 있습니다…',
+    sub: '— 보통 호흡(1~2문장)으로 재조율 중'
   },
   'length:long': {
-    status: '✦ 생각이 도중에 끊기지 않게 호흡을 늘리는 중',
-    text: '사유가 충분히 가지를 뻗을 수 있도록 유려한 3~4문장의 긴 산문 호흡으로 펼치고 있습니다…',
-    sub: '— 긴 호흡(3~4문장)으로 재직조 중'
+    status: '✦ 2~3문장으로 호흡을 넓히는 중',
+    text: '생각이 자연스럽게 이어지도록 읽기 편한 두세 문장으로 풀어내고 있습니다…',
+    sub: '— 긴 호흡(2~3문장)으로 재조율 중'
   },
   'ending:auto': {
-    status: '✦ 당신의 본문 어미를 다시 귀 기울여 듣는 중',
-    text: '쓰고 계신 글의 종결어미를 자동으로 감지해 자연스럽게 말투를 맞추고 있습니다…',
-    sub: '— 본문 맞춤 어미로 재직조 중'
+    status: '✦ 쓰신 본문 말투에 맞추는 중',
+    text: '본문의 마지막 문장 어미를 읽어 자연스럽게 이어지도록 말투를 맞추고 있습니다…',
+    sub: '— 본문 맞춤 어미로 재조율 중'
   },
   'ending:plain': {
-    status: '✦ 단단한 독백 평서체(~다)로 여미는 중',
-    text: '문장의 끝을 군더더기 없는 평서체(~다)로 단단하게 여미고 있습니다…',
-    sub: '— 평서체(~다)로 재직조 중'
+    status: '✦ 담백한 평서체(~다)로 바꾸는 중',
+    text: '문장의 끝을 깔끔하고 솔직한 평서체(~다)로 통일하고 있습니다…',
+    sub: '— 평서체(~다)로 재조율 중'
   },
   'ending:polite': {
-    status: '✦ 다정한 편지 경어체(~요/습니다)로 다듬는 중',
-    text: '마주 앉아 조용히 건네는 이야기처럼 부드러운 경어체로 어미를 바꾸고 있습니다…',
-    sub: '— 경어체(~요)로 재직조 중'
+    status: '✦ 다정한 경어체(~요/습니다)로 바꾸는 중',
+    text: '조용히 건네는 이야기처럼 부드러운 경어체로 어미를 바꾸고 있습니다…',
+    sub: '— 경어체(~요)로 재조율 중'
   }
 };
 
 function getStyleSummaryLabel() {
   const s = state.weaveStyle;
-  const toneShort = STYLE_AXES[0].options.find(o => o.val === s.tone)?.short || '서정';
-  const lenShort = STYLE_AXES[1].options.find(o => o.val === s.length)?.short || '보통';
+  const toneShort = STYLE_AXES[0].options.find(o => o.val === s.tone)?.short || '담백';
+  const lenShort = STYLE_AXES[1].options.find(o => o.val === s.length)?.short || '1~2문장';
   const endShort = s.ending === 'auto' ? '' : ` · ${STYLE_AXES[2].options.find(o => o.val === s.ending)?.short || ''}`;
   const arrow = state.styleTunerOpen ? '▴' : '▾';
   return `${toneShort} · ${lenShort}${endShort} ${arrow}`;
@@ -1136,7 +1138,7 @@ function renderStyleTuner() {
         ev.stopPropagation();
         if (state.weaveStyle[axis.key] === opt.val && !state.weaveLoading) return;
         state.weaveStyle[axis.key] = opt.val;
-        localStorage.setItem('dw_weave_style', JSON.stringify(state.weaveStyle));
+        localStorage.setItem('dw_weave_style_v2', JSON.stringify(state.weaveStyle));
         state.lastStyleChanged = `${axis.key}:${opt.val}`;
         document.body.classList.remove('typing');
         renderStyleTuner();
@@ -1378,12 +1380,36 @@ function scheduleAutoWeaveAfterEdit() {
       return;
     }
     const prev = state.lastWovenContext || '';
-    const changedTail = cur.slice(-20) !== prev.slice(-20);
-    const changedLen = Math.abs(cur.length - prev.length) >= 10;
+    const changedTail = cur.slice(-24) !== prev.slice(-24);
+    const changedLen = Math.abs(cur.length - prev.length) >= 4;
     if (cur !== prev && (changedTail || changedLen)) {
       requestWeave(state.weaveDirection || 'reson');
     }
-  }, 2600);
+  }, 1500);
+}
+
+function scheduleAutoArchiveAfterEdit() {
+  if (state.hasAiKey) return;
+  clearTimeout(state.autoArchiveTimer);
+  state.autoArchiveTimer = setTimeout(() => {
+    if (state.hasAiKey || state.mode !== 'write') return;
+    const cur = $('editor').value.trim();
+    const prev = state.lastArchiveContext || '';
+    if (!cur) {
+      state.lastArchiveContext = '';
+      state.anchorPassage = null;
+      state.relationMode = 'fresh';
+      state.relationLabel = '';
+      renderArchivePassageCard(false);
+      return;
+    }
+    const changedTail = cur.slice(-18) !== prev.slice(-18);
+    const changedLen = Math.abs(cur.length - prev.length) >= 6;
+    if (cur !== prev && (changedTail || changedLen)) {
+      state.lastArchiveContext = cur;
+      fetchArchivePassage({ mode: 'same_concept', anchor: null, animate: true });
+    }
+  }, 1600);
 }
 
 // ============================================================================
@@ -1435,9 +1461,10 @@ async function fetchArchivePassage({ mode = 'fresh', clearAnchor = false, anchor
   seenSet.add(data.passage.id);
 
   state.currentPassage = data.passage;
+  state.lastArchiveContext = rawVal.trim();
   state.anchorPassage = clearAnchor ? null : (data.anchor || null);
   state.relationMode = state.anchorPassage ? (data.mode || mode) : 'fresh';
-  state.relationLabel = state.anchorPassage ? (data.relationLabel || '') : '';
+  state.relationLabel = data.relationLabel || '';
 
   renderArchivePassageCard(animate);
 }
@@ -1453,7 +1480,7 @@ function renderArchivePassageCard(animate = false) {
 
   const applyContent = () => {
     const relEl = $('passageRel');
-    if (state.anchorPassage && state.relationLabel) {
+    if (state.relationLabel) {
       relEl.textContent = state.relationLabel;
       relEl.classList.remove('hidden');
     } else {
@@ -1475,6 +1502,7 @@ function renderArchivePassageCard(animate = false) {
     if ($('rightCardBtn')) $('rightCardBtn').classList.add('hidden');
 
     const hasAnchor = Boolean(state.anchorPassage);
+    const isUserAnchor = Boolean(state.anchorPassage && state.anchorPassage.isUserText);
 
     // 1. 말풍선 내부 우하단: 본문에 인용하는 주요 액션 버튼
     const bubbleInsertBtn = $('bubbleInsertBtn');
@@ -1503,11 +1531,16 @@ function renderArchivePassageCard(animate = false) {
     fetchOpts.className = 'group-options';
 
     if (hasAnchor) {
-      const relDefs = [
-        { mode: 'same_concept', label: '같은 결' },
-        { mode: 'contra_concept', label: '반대 시선' },
-        { mode: 'same_author', label: '같은 작가' }
-      ];
+      const relDefs = isUserAnchor
+        ? [
+            { mode: 'same_concept', label: '같은 결' },
+            { mode: 'contra_concept', label: '반대 시선' }
+          ]
+        : [
+            { mode: 'same_concept', label: '같은 결' },
+            { mode: 'contra_concept', label: '반대 시선' },
+            { mode: 'same_author', label: '같은 작가' }
+          ];
       for (const r of relDefs) {
         const b = document.createElement('button');
         b.type = 'button';
@@ -1920,11 +1953,8 @@ window.addEventListener('DOMContentLoaded', () => {
 
     if (state.hasAiKey) {
       scheduleAutoWeaveAfterEdit();
-    } else if (state.anchorPassage && !QUOTE_LINE_RE.test(ed.value)) {
-      state.anchorPassage = null;
-      state.relationMode = 'fresh';
-      state.relationLabel = '';
-      renderArchivePassageCard(false);
+    } else {
+      scheduleAutoArchiveAfterEdit();
     }
 
     document.body.classList.add('typing');
