@@ -1184,7 +1184,8 @@ async function requestWeave(direction = 'reson', { forceNew = false, styleReweav
         direction: effectiveDir,
         editorText: rawVal,
         avoidAuthors: state.recentAuthors.slice(-8),
-        styleOptions: state.weaveStyle
+        styleOptions: state.weaveStyle,
+        currentDraft: (styleReweave && state.wovenDraft) ? state.wovenDraft : null
       })
     });
 

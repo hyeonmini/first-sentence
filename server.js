@@ -903,7 +903,8 @@ const server = http.createServer(async (req, res) => {
           direction: body.direction || 'reson',
           editorText: body.editorText || '',
           avoidAuthors: Array.isArray(body.avoidAuthors) ? body.avoidAuthors : [],
-          styleOptions: body.styleOptions || {}
+          styleOptions: body.styleOptions || {},
+          currentDraft: body.currentDraft || null
         });
         return sendJson(res, 200, woven);
       } catch (err) {

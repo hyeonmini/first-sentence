@@ -371,7 +371,8 @@ async function weaveNextParagraph({
   direction = 'reson',
   editorText = '',
   avoidAuthors = [],
-  styleOptions = {}
+  styleOptions = {},
+  currentDraft = null
 }) {
   const stateInfo = detectSentenceEndingState(editorText);
   const effectiveDir = stateInfo.isEmpty ? 'opening' : (DIRECTION_GUIDES[direction] ? direction : 'reson');
@@ -387,7 +388,8 @@ async function weaveNextParagraph({
       ? '반드시 다정하고 차분한 경어체(~요 / ~습니다 / ~네요) 어미로 통일'
       : stateInfo.styleHint;
 
-  const avoidLine = Array.isArray(avoidAuthors) && avoidAuthors.length > 0
+  const hasCurrentDraft = Boolean(currentDraft && currentDraft.paragraph);
+  const avoidLine = (!hasCurrentDraft && Array.isArray(avoidAuthors) && avoidAuthors.length > 0)
     ? `\n이미 본문이나 직전 추천에 등장했으니 이번에 피해야 할 작가/출전: ${avoidAuthors.slice(-8).join(', ')}`
     : '';
 
@@ -399,7 +401,16 @@ async function weaveNextParagraph({
 - 종결 어미: ${endingHint}${avoidLine}
 `;
 
-  if (stateInfo.isEmpty) {
+  if (hasCurrentDraft) {
+    userPrompt += `
+[문체 재조율 대상 (원래 제안 문단 — 출전·핵심 사유는 그대로 유지할 것)]
+- 기존 문단: """${currentDraft.paragraph}"""
+- 기존 영감 원전(inspiration): ${currentDraft.inspiration || ''}
+- 기존 작가(author): ${currentDraft.author || ''}
+
+중요 지침: 사용자가 다른 글귀를 요청한 것이 아니라, 위 [기존 문단]의 **문체(농도·호흡·어미)만 변경**했습니다.
+따라서 기존 영감 원전(${currentDraft.inspiration || currentDraft.author || '동일 원전'})과 핵심 메시지는 절대 바꾸지 말고 그대로 유지한 채, 오직 위 [문체 조율 설정](${STYLE_LENGTH_GUIDES[lenKey].ask}, ${endingHint})에 맞춰 문장의 표현·밀도·길이·종결어미만 새롭게 다듬어 주세요.`;
+  } else if (stateInfo.isEmpty) {
     userPrompt += `\n현재 본문은 비어 있습니다. 위 문체 조율 설정에 맞춰 ${STYLE_LENGTH_GUIDES[lenKey].ask} 분량의 첫 단락을 제안해 주세요.`;
   } else if (stateInfo.isIncomplete) {
     userPrompt += `\n[현재까지 사용자가 작성한 본문]\n"""\n${editorText}\n"""\n\n중요: 사용자의 마지막 구절("${stateInfo.lastChunk}")이 아직 문장으로 끝나지 않고 열려 있습니다! 사용자가 이미 쓴 어구를 중복해서 반복하지 말고, 그 마지막 어구 바로 뒤에 자연스럽게 이어 붙여 문장을 완성하며 위 문체 조율 설정(${STYLE_LENGTH_GUIDES[lenKey].ask})에 맞춰 써주세요.`;
@@ -413,8 +424,12 @@ async function weaveNextParagraph({
 
   return {
     paragraph,
-    inspiration: String(parsed.inspiration || parsed.author || '').trim(),
-    author: String(parsed.author || '').trim(),
+    inspiration: hasCurrentDraft && currentDraft.inspiration
+      ? currentDraft.inspiration
+      : String(parsed.inspiration || parsed.author || '').trim(),
+    author: hasCurrentDraft && currentDraft.author
+      ? currentDraft.author
+      : String(parsed.author || '').trim(),
     direction: effectiveDir,
     appendMode: stateInfo.isEmpty ? 'start' : (stateInfo.isIncomplete ? 'inline' : 'paragraph'),
     provider,
