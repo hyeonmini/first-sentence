@@ -1,0 +1,10 @@
+{
+  "name": "첫 문장 — 가장 진실한 한 줄부터",
+  "short_name": "첫 문장",
+  "description": "어떻게 글을 시작할지 막막한 사람들을 위해 고전과 현대의 사유로 한 호흡씩 함께 짓는 글쓰기 공간",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101010",
+  "theme_color": "#101010",
+  "orientation": "portrait-primary"
+}

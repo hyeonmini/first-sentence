@@ -1,0 +1,13 @@
+{
+  "name": "daily-writing",
+  "version": "1.0.0",
+  "description": "매일 아침 나만 보는 글쓰기 & X/Threads 발행 웹앱",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

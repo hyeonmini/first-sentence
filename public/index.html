@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="첫 문장" />
+  <link rel="manifest" href="/manifest.json" />
+  <title>첫 문장 — 가장 진실한 한 줄부터</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css?v=16" />
+  <script>
+    (function () {
+      var pref = localStorage.getItem('dw_theme_pref') || 'auto';
+      var hr = new Date().getHours();
+      var autoTheme = (hr >= 6 && hr < 19) ? 'light' : 'dark';
+      var resolved = (pref === 'light' || pref === 'dark') ? pref : autoTheme;
+      document.documentElement.setAttribute('data-theme', resolved);
+    })();
+  </script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js" defer></script>
+</head>
+<body>
+  <!-- 비밀번호 잠금 시에만 내부 입력창이 동적으로 마운트됨 (iOS 자동완성 바 방지) -->
+  <div id="lockScreen" class="overlay hidden"></div>
+
+  <!-- 상단 최소 네비게이션 -->
+  <header id="topbar" class="topbar">
+    <button id="leftNavBtn" class="ghost-btn" type="button">서재</button>
+    <span id="brandTitle" class="brand-mark" title="그저 당신이 아는 가장 진실한 문장 단 하나만 먼저 적어 내려가라 — 헤밍웨이">첫 문장</span>
+    <div id="topbarRight" class="topbar-right">
+      <button id="saveNowBtn" class="ghost-btn" type="button">저장</button>
+      <button id="rightNavBtn" class="ghost-btn" type="button">발행</button>
+    </div>
+  </header>
+
+  <!-- 한 장의 종이와 그 아래 펼쳐지는 사유의 한 호흡 -->
+  <main id="mainCanvas" class="page">
+    <div id="paper" class="paper">
+      <div class="meta-line">
+        <span id="dateLabel"></span>
+        <div class="meta-right">
+          <span id="saveStateLabel" class="save-state"></span>
+          <span id="metaHint" class="muted"></span>
+        </div>
+      </div>
+
+      <!-- 1. 쓰기 화면 -->
+      <section id="writeView">
+        <div id="echoBox" class="echo-box hidden">
+          <div class="echo-head">
+            <span id="echoLabel">지난 문장의 여운</span>
+            <span id="echoMore" class="hidden">다른 여운 ↻</span>
+          </div>
+          <p id="echoText" class="echo-text"></p>
+        </div>
+
+        <textarea
+          id="editor"
+          class="editor"
+          rows="1"
+          placeholder="당신이 아는 가장 진실한 문장 단 하나만 먼저 적어 내려가거나, 아래 첫 단락으로 시작해보세요..."
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          autofocus
+        ></textarea>
+
+        <!-- 노트 아래 조용히 펼쳐지는 사유의 말풍선 & 그 아래 선택 그룹핑 -->
+        <aside id="passageCard" class="passage-card">
+          <div id="passageBubble" class="passage-bubble">
+            <div id="passageRel" class="passage-rel hidden"></div>
+            <blockquote id="passageQuote" class="passage-quote"></blockquote>
+            <div class="passage-bubble-foot">
+              <div id="passageSource" class="passage-source"></div>
+              <button id="bubbleInsertBtn" class="bubble-insert-btn" type="button">+ 인용하기</button>
+            </div>
+          </div>
+
+          <div class="passage-groups-stack">
+            <div id="passageBtns" class="passage-group-row"></div>
+            <div id="categoryGroupBar" class="passage-group-row hidden"></div>
+            <div id="styleGroupBar" class="passage-group-row hidden">
+              <div class="passage-control-group">
+                <span class="group-label">문체 조율</span>
+                <button id="styleTuneToggleBtn" class="style-tune-pill" type="button"></button>
+              </div>
+              <button id="rightCardBtn" class="passage-cat-btn hidden" type="button"></button>
+            </div>
+          </div>
+
+          <div id="styleTunerPanel" class="style-tuner-panel hidden"></div>
+          <div id="aiKeyBanner" class="ai-key-banner hidden"></div>
+        </aside>
+      </section>
+
+      <!-- 2. 발행 화면: 원하는 문장만 추려 Threads / X로 발행 -->
+      <section id="distillView" class="distill-view hidden">
+        <div id="pickerSection" class="picker-section">
+          <div class="picker-head">
+            <span id="pickerGuide">발행할 문장만 탭하여 고르세요 (선택 안 하면 전체 발행)</span>
+            <button id="clearPicksBtn" class="muted-btn hidden" type="button">선택 해제</button>
+          </div>
+          <div id="sentencePicker" class="sentence-picker"></div>
+        </div>
+
+        <div class="distill-bar">
+          <div class="platform-tabs">
+            <button class="plat-tab active" data-plat="threads" type="button">Threads</button>
+            <button class="plat-tab" data-plat="x" type="button">X</button>
+          </div>
+          <div class="distill-tools">
+            <button id="invertHookBtn" class="muted-btn hidden" type="button" title="마지막 문장을 맨 앞으로 올립니다">
+              끝문장을 첫 줄로 ↑
+            </button>
+          </div>
+        </div>
+
+        <div id="publishList" class="publish-list"></div>
+
+        <div id="publishFoot" class="distill-foot">
+          <div class="distill-checks">
+            <label class="num-check">
+              <input type="checkbox" id="sigToggle" checked />
+              <span>‘첫 문장’ 영감 문구 포함</span>
+            </label>
+            <label id="numToggleWrap" class="num-check hidden">
+              <input type="checkbox" id="numToggle" checked />
+              <span>번호 (1/N)</span>
+            </label>
+          </div>
+          <button id="copyAllBtn" class="text-btn hidden" type="button">전체 복사</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div id="backdrop" class="backdrop hidden"></div>
+
+  <!-- 좌측 서재 & 계정 시트 -->
+  <aside id="archiveSheet" class="sheet">
+    <div class="sheet-head">
+      <span>첫 문장 · 서재</span>
+      <button id="newBtn" class="text-btn" type="button">+ 새 종이</button>
+    </div>
+
+    <!-- 구글 로그인 / 사용자 프로필 영역 -->
+    <div id="userSection" class="user-section"></div>
+
+    <div id="archiveList" class="archive-list"></div>
+
+    <div class="sheet-db-bar">
+      <span id="dbCountLabel" class="muted">사유 아카이브</span>
+      <button id="updateDbBtn" class="muted-btn" type="button" title="현대·고전 글귀 DB를 지금 바로 업데이트합니다">글귀 업데이트 ↻</button>
+    </div>
+
+    <div class="sheet-foot">
+      <button id="themeBtn" class="muted-btn" type="button">테마</button>
+      <button id="aiSettingBtn" class="muted-btn" type="button">AI 연결</button>
+      <button id="lockBtn" class="muted-btn" type="button">잠금</button>
+      <button id="deleteBtn" class="muted-btn danger" type="button">삭제</button>
+    </div>
+  </aside>
+
+  <!-- 커스텀 문학 다이얼로그 팝업 (삭제 확인 · 잠금 비밀번호 설정) -->
+  <div id="dialogModal" class="dialog-overlay hidden" role="dialog" aria-modal="true">
+    <div class="dialog-card">
+      <p id="dialogTitle" class="dialog-title"></p>
+      <p id="dialogSub" class="dialog-sub hidden"></p>
+      <input id="dialogInput" class="dialog-input hidden" type="password" autocomplete="off" />
+      <div class="dialog-actions">
+        <button id="dialogCancelBtn" class="muted-btn" type="button">취소</button>
+        <button id="dialogConfirmBtn" class="text-btn" type="button">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 하단 문학적 토스트 팝업 -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="/app.js?v=14"></script>
+</body>
+</html>
