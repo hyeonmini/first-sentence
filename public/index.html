@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=18" />
+  <link rel="stylesheet" href="/styles.css?v=20" />
   <script>
     (function () {
       var pref = localStorage.getItem('dw_theme_pref') || 'auto';
@@ -59,25 +59,49 @@
           <p id="echoText" class="echo-text"></p>
         </div>
 
+        <!-- 내부 원고 동기화용 숨김 에디터 -->
         <textarea
           id="editor"
-          class="editor"
+          class="editor hidden"
           rows="1"
-          placeholder="첫 줄을 직접 적어 내려가거나, 아래 희미한 문장을 터치해 시작해보세요..."
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="off"
-          spellcheck="false"
-          autofocus
+          aria-hidden="true"
+          tabindex="-1"
         ></textarea>
 
-        <!-- 본문 안(커서 바로 아래)에 희미하게 비치는 다음 일상 문장 (터치 시 본문에 바로 추가) -->
+        <!-- 모바일 퍼스트: 터치·스와이프 문장 블록 캔버스 -->
+        <div id="touchCanvasHint" class="touch-canvas-hint hidden">
+          문장을 터치해 순서 이동·다듬기 · 왼쪽으로 밀어 덜어내기
+        </div>
+        <div id="sentenceCanvas" class="sentence-canvas"></div>
+
+        <!-- 본문 안(커서 바로 아래)에 희미하게 비치는 다음 일상 문장 (터치/우측 밀기 = 추가 · 좌측 밀기 = 다른 문장) -->
         <div id="ghostLineWrap" class="ghost-line-wrap hidden">
-          <span id="ghostLineText" class="ghost-line-text" role="button" tabindex="0" title="터치하면 본문에 바로 이어 붙여집니다"></span>
+          <span id="ghostLineText" class="ghost-line-text" role="button" tabindex="0" title="터치하거나 오른쪽으로 밀어 본문에 이어 붙입니다"></span>
           <span class="ghost-line-tools">
             <button id="ghostAddBtn" class="ghost-tool-btn add" type="button">+ 터치하여 잇기 ↵</button>
             <button id="ghostNextBtn" class="ghost-tool-btn next" type="button" title="다른 이어질 문장 보기">다른 문장 ↻</button>
           </span>
+        </div>
+
+        <!-- 2순위 보조 입력: 필요할 때만 열어 키보드 팝업 방해 없이 직접 타이핑 -->
+        <div id="directComposeWrap" class="direct-compose-wrap">
+          <button id="openComposeBtn" class="open-compose-btn" type="button">✎ 직접 문장 적어 넣기</button>
+          <div id="composeBox" class="compose-box hidden">
+            <textarea
+              id="composeInput"
+              class="compose-input"
+              rows="1"
+              placeholder="이어 적을 문장을 입력하세요..."
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+            ></textarea>
+            <div class="compose-actions">
+              <button id="cancelComposeBtn" class="ghost-tool-btn" type="button">닫기</button>
+              <button id="submitComposeBtn" class="ghost-tool-btn add" type="button">+ 본문에 넣기 ↵</button>
+            </div>
+          </div>
         </div>
 
         <!-- 노트 아래 조용히 펼쳐지는 사유의 말풍선 & 그 아래 선택 그룹핑 -->
@@ -192,6 +216,6 @@
   <!-- 하단 문학적 토스트 팝업 -->
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="/app.js?v=19"></script>
+  <script src="/app.js?v=20"></script>
 </body>
 </html>

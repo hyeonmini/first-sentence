@@ -145,6 +145,12 @@ const state = {
   activeId: null,
   mode: 'write', // 'write' | 'distill'
   platform: 'threads', // 'threads' (500) | 'x' (280)
+  docBlocks: [],
+  selectedBlockIdx: -1,
+  editingBlockIdx: -1,
+  justMovedIdx: -1,
+  lastClosedBlockCount: 0,
+  composeOpen: false,
   segments: [],
   hookInverted: false,
 
@@ -219,18 +225,37 @@ function apiFetch(url, opts = {}) {
   return fetch(url, Object.assign({}, opts, { headers }));
 }
 
-function toast(msg) {
+function toast(msg, opts = {}) {
   const el = $('toast');
   if (!el) return;
+  const { actionLabel = '', onAction = null, duration = 2200 } = opts;
   el.innerHTML = `<span class="toast-ornament">✦</span><span class="toast-msg"></span>`;
   const msgEl = el.querySelector('.toast-msg');
   if (msgEl) msgEl.textContent = msg;
+
+  if (actionLabel && typeof onAction === 'function') {
+    const actBtn = document.createElement('button');
+    actBtn.type = 'button';
+    actBtn.className = 'toast-undo-btn';
+    actBtn.textContent = actionLabel;
+    actBtn.onclick = e => {
+      e.stopPropagation();
+      clearTimeout(el._t);
+      el.classList.remove('show', 'interactive');
+      onAction();
+    };
+    el.appendChild(actBtn);
+    el.classList.add('interactive');
+  } else {
+    el.classList.remove('interactive');
+  }
+
   el.classList.remove('hidden');
   el.classList.add('show');
   clearTimeout(el._t);
   el._t = setTimeout(() => {
-    el.classList.remove('show');
-  }, 2200);
+    el.classList.remove('show', 'interactive');
+  }, actionLabel ? Math.max(duration, 3800) : duration);
 }
 
 function showDialog({ title, sub = '', inputPlaceholder = '', confirmText = '확인', danger = false }) {
@@ -316,8 +341,532 @@ function getActiveWriting() {
 }
 
 function autoResizeTextarea(el) {
+  if (!el) return;
   el.style.height = 'auto';
-  el.style.height = `${Math.max(36, el.scrollHeight)}px`;
+  el.style.height = `${Math.max(34, el.scrollHeight)}px`;
+}
+
+// ============================================================================
+// 모바일 퍼스트: 문장 단위 파싱 & 터치·스와이프·드래그 캔버스
+// ============================================================================
+function isQuoteBlockText(str = '') {
+  return /^["“].+["”]\s*(?:—|--|―)\s*.+$/s.test(String(str).trim());
+}
+
+function splitLineIntoSentences(line = '') {
+  const trimmed = String(line).trim();
+  if (!trimmed) return [];
+  if (isQuoteBlockText(trimmed)) return [trimmed];
+
+  const out = [];
+  let cur = '';
+  let quoteDepth = 0;
+  let parenDepth = 0;
+
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    cur += ch;
+
+    if (ch === '“' || ch === '‘') quoteDepth++;
+    else if (ch === '”' || ch === '’') quoteDepth = Math.max(0, quoteDepth - 1);
+    else if (ch === '"') quoteDepth = quoteDepth === 0 ? 1 : 0;
+    else if (ch === '(' || ch === '《' || ch === '〈' || ch === '[') parenDepth++;
+    else if (ch === ')' || ch === '》' || ch === '〉' || ch === ']') parenDepth = Math.max(0, parenDepth - 1);
+
+    if (quoteDepth === 0 && parenDepth === 0 && /[.?!…]/.test(ch)) {
+      const nextCh = trimmed[i + 1] || '';
+      if (/[.?!…]/.test(nextCh)) continue;
+      if (/["”'’)\]》〉]/.test(nextCh)) continue;
+      const prevCh = trimmed[i - 1] || '';
+      if (ch === '.' && /\d/.test(prevCh) && /\d/.test(trimmed.slice(i + 1).trimStart()[0] || '')) {
+        continue;
+      }
+      if (!nextCh || /\s/.test(nextCh)) {
+        if (cur.trim()) out.push(cur.trim());
+        cur = '';
+      }
+    }
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+function parseContentToBlocks(content = '') {
+  const raw = String(content || '').trim();
+  if (!raw) return [];
+  const lines = raw.split(/\n+/).map(s => s.trim()).filter(Boolean);
+  const blocks = [];
+  for (const line of lines) {
+    blocks.push(...splitLineIntoSentences(line));
+  }
+  return blocks;
+}
+
+function syncBlocksToEditor({ triggerSave = false, triggerRecommend = false } = {}) {
+  const ed = $('editor');
+  const joined = state.docBlocks.join('\n\n');
+  if (ed) ed.value = joined;
+
+  if (state.closedComplete || state.replacingClose) {
+    if (!state.lastClosedParagraph || !joined.trim().endsWith(state.lastClosedParagraph)) {
+      state.closedComplete = false;
+      state.replacingClose = false;
+      state.lastClosedParagraph = '';
+      state.lastClosedBlockCount = 0;
+    }
+  }
+
+  updateWriteMeta();
+  renderEchoBox();
+  renderSentenceCanvas();
+
+  if (triggerSave) scheduleSave();
+  if (triggerRecommend) {
+    if (state.hasAiKey) {
+      scheduleAutoWeaveAfterEdit();
+    } else {
+      scheduleAutoArchiveAfterEdit();
+    }
+  }
+}
+
+function appendTextAsBlocks(text, { inline = false, replaceLastCount = 0 } = {}) {
+  const units = parseContentToBlocks(text);
+  if (units.length === 0) return 0;
+
+  if (replaceLastCount > 0 && state.docBlocks.length >= replaceLastCount) {
+    state.docBlocks.splice(state.docBlocks.length - replaceLastCount, replaceLastCount, ...units);
+  } else if (inline && state.docBlocks.length > 0) {
+    const lastIdx = state.docBlocks.length - 1;
+    state.docBlocks[lastIdx] = `${state.docBlocks[lastIdx].replace(/[ \t]+$/g, '')} ${units[0]}`;
+    if (units.length > 1) {
+      state.docBlocks.push(...units.slice(1));
+    }
+  } else {
+    state.docBlocks.push(...units);
+  }
+
+  state.selectedBlockIdx = -1;
+  state.editingBlockIdx = -1;
+  return units.length;
+}
+
+function moveBlock(fromIdx, toIdx) {
+  const total = state.docBlocks.length;
+  if (fromIdx < 0 || fromIdx >= total || toIdx < 0 || toIdx >= total || fromIdx === toIdx) return;
+
+  const [moved] = state.docBlocks.splice(fromIdx, 1);
+  state.docBlocks.splice(toIdx, 0, moved);
+
+  if (state.selectedBlockIdx === fromIdx) {
+    state.selectedBlockIdx = toIdx;
+  } else if (state.selectedBlockIdx !== -1) {
+    state.selectedBlockIdx = -1;
+  }
+  state.editingBlockIdx = -1;
+  state.justMovedIdx = toIdx;
+
+  syncBlocksToEditor({ triggerSave: true, triggerRecommend: true });
+  setTimeout(() => {
+    if (state.justMovedIdx === toIdx) {
+      state.justMovedIdx = -1;
+    }
+  }, 600);
+}
+
+function removeBlockAt(idx, slotEl = null) {
+  if (idx < 0 || idx >= state.docBlocks.length) return;
+  const removedText = state.docBlocks[idx];
+  const removedIdx = idx;
+
+  const finalizeRemove = () => {
+    state.docBlocks.splice(removedIdx, 1);
+    state.selectedBlockIdx = -1;
+    state.editingBlockIdx = -1;
+    syncBlocksToEditor({ triggerSave: true, triggerRecommend: true });
+
+    toast('문장을 덜어냈습니다', {
+      actionLabel: '되돌리기 ↺',
+      duration: 4200,
+      onAction: () => {
+        const restorePos = Math.min(removedIdx, state.docBlocks.length);
+        state.docBlocks.splice(restorePos, 0, removedText);
+        state.justMovedIdx = restorePos;
+        syncBlocksToEditor({ triggerSave: true, triggerRecommend: true });
+        toast('덜어낸 문장을 되살렸습니다');
+      }
+    });
+  };
+
+  if (slotEl) {
+    slotEl.classList.add('removing');
+    setTimeout(finalizeRemove, 180);
+  } else {
+    finalizeRemove();
+  }
+}
+
+function attachSentenceTouchGestures(slot, item, bg, idx) {
+  let startX = 0;
+  let startY = 0;
+  let curDx = 0;
+  let axis = null;
+  let tracking = false;
+
+  const total = state.docBlocks.length;
+  const rightMoveLabel = idx > 0 ? '↑ 한 칸 위로' : (total >= 2 ? '↓ 한 칸 아래로' : '');
+
+  item.addEventListener('touchstart', e => {
+    if (state.editingBlockIdx === idx) return;
+    if (e.target.closest('.sentence-toolbar') || e.target.closest('.sentence-drag-handle')) return;
+    if (e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    curDx = 0;
+    axis = null;
+    tracking = true;
+  }, { passive: true });
+
+  item.addEventListener('touchmove', e => {
+    if (!tracking || e.touches.length !== 1) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+
+    if (!axis) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      axis = Math.abs(dx) > Math.abs(dy) * 1.25 ? 'x' : 'y';
+    }
+    if (axis !== 'x') return;
+
+    e.preventDefault();
+    // 우측 스와이프는 문장이 2개 이상일 때만 허용
+    const clampedDx = (dx > 0 && !rightMoveLabel)
+      ? dx * 0.18
+      : Math.max(-130, Math.min(110, dx));
+    curDx = clampedDx;
+
+    item.classList.add('swiping');
+    item.style.transform = `translateX(${clampedDx}px)`;
+
+    if (clampedDx < -12) {
+      const ready = clampedDx <= -74;
+      bg.className = `sentence-swipe-bg swiping-left${ready ? ' ready' : ''}`;
+      bg.textContent = ready ? '놓아서 덜어내기 ✕' : '← 밀어서 덜어내기';
+    } else if (clampedDx > 12 && rightMoveLabel) {
+      const ready = clampedDx >= 68;
+      bg.className = `sentence-swipe-bg swiping-right${ready ? ' ready' : ''}`;
+      bg.textContent = ready ? `${rightMoveLabel} ✓` : `→ ${rightMoveLabel}`;
+    } else {
+      bg.className = 'sentence-swipe-bg';
+      bg.textContent = '';
+    }
+  }, { passive: false });
+
+  const finishSwipe = () => {
+    if (!tracking) return;
+    tracking = false;
+    item.classList.remove('swiping');
+
+    if (axis === 'x') {
+      item._suppressClickUntil = Date.now() + 320;
+      if (curDx <= -74) {
+        bg.className = 'sentence-swipe-bg';
+        removeBlockAt(idx, slot);
+        return;
+      }
+      if (curDx >= 68 && rightMoveLabel) {
+        item.style.transform = '';
+        bg.className = 'sentence-swipe-bg';
+        moveBlock(idx, idx > 0 ? idx - 1 : 1);
+        return;
+      }
+    }
+
+    item.style.transform = '';
+    bg.className = 'sentence-swipe-bg';
+    bg.textContent = '';
+  };
+
+  item.addEventListener('touchend', finishSwipe);
+  item.addEventListener('touchcancel', finishSwipe);
+}
+
+function attachDragReorderHandle(handle, sourceItem, fromIdx) {
+  let dragging = false;
+  let dropTargetIdx = fromIdx;
+
+  const clearIndicators = () => {
+    document.querySelectorAll('.sentence-item').forEach(el => {
+      el.classList.remove('drag-over-top', 'drag-over-bottom', 'dragging-source');
+    });
+  };
+
+  handle.addEventListener('pointerdown', e => {
+    if (state.docBlocks.length < 2) return;
+    e.stopPropagation();
+    e.preventDefault();
+    dragging = true;
+    dropTargetIdx = fromIdx;
+    sourceItem.classList.add('dragging-source');
+    try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+
+  handle.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    e.preventDefault();
+    const items = [...document.querySelectorAll('#sentenceCanvas .sentence-item')];
+    items.forEach(el => el.classList.remove('drag-over-top', 'drag-over-bottom'));
+
+    const y = e.clientY;
+    let nextIdx = fromIdx;
+
+    for (let i = 0; i < items.length; i++) {
+      const rect = items[i].getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      if (y < mid) {
+        items[i].classList.add('drag-over-top');
+        nextIdx = i > fromIdx ? i - 1 : i;
+        dropTargetIdx = nextIdx;
+        return;
+      }
+    }
+
+    const lastEl = items[items.length - 1];
+    if (lastEl) lastEl.classList.add('drag-over-bottom');
+    dropTargetIdx = items.length - 1;
+  });
+
+  const endDrag = e => {
+    if (!dragging) return;
+    dragging = false;
+    try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+    clearIndicators();
+    if (dropTargetIdx !== fromIdx) {
+      moveBlock(fromIdx, dropTargetIdx);
+    }
+  };
+
+  handle.addEventListener('pointerup', endDrag);
+  handle.addEventListener('pointercancel', endDrag);
+}
+
+function renderSentenceCanvas() {
+  const canvas = $('sentenceCanvas');
+  const hint = $('touchCanvasHint');
+  const openBtn = $('openComposeBtn');
+  if (!canvas) return;
+
+  const blocks = state.docBlocks;
+  if (hint) {
+    hint.classList.toggle('hidden', blocks.length === 0);
+  }
+  if (openBtn) {
+    openBtn.textContent = blocks.length === 0 ? '✎ 직접 첫 문장 적어 넣기' : '✎ 직접 문장 적어 넣기';
+    openBtn.classList.toggle('hidden', state.composeOpen);
+  }
+
+  canvas.innerHTML = '';
+
+  blocks.forEach((txt, idx) => {
+    const slot = document.createElement('div');
+    slot.className = 'sentence-swipe-slot';
+
+    const bg = document.createElement('div');
+    bg.className = 'sentence-swipe-bg';
+
+    const item = document.createElement('div');
+    const isQuote = isQuoteBlockText(txt);
+    const isSelected = state.selectedBlockIdx === idx;
+    const isEditing = state.editingBlockIdx === idx;
+    const isMoved = state.justMovedIdx === idx;
+
+    item.className = [
+      'sentence-item',
+      isQuote ? 'is-quote' : '',
+      isSelected ? 'selected' : '',
+      isMoved ? 'just-moved' : ''
+    ].filter(Boolean).join(' ');
+
+    if (isEditing) {
+      const editBox = document.createElement('div');
+      editBox.className = 'sentence-edit-box';
+
+      const ta = document.createElement('textarea');
+      ta.className = 'sentence-edit-input';
+      ta.rows = 1;
+      ta.value = txt;
+
+      const acts = document.createElement('div');
+      acts.className = 'sentence-edit-actions';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'ghost-tool-btn';
+      cancelBtn.textContent = '취소';
+      cancelBtn.onclick = ev => {
+        ev.stopPropagation();
+        state.editingBlockIdx = -1;
+        renderSentenceCanvas();
+      };
+
+      const saveEdit = () => {
+        const nextVal = ta.value.trim();
+        state.editingBlockIdx = -1;
+        if (!nextVal) {
+          removeBlockAt(idx);
+          return;
+        }
+        const splitEdited = parseContentToBlocks(nextVal);
+        state.docBlocks.splice(idx, 1, ...splitEdited);
+        state.selectedBlockIdx = idx;
+        syncBlocksToEditor({ triggerSave: true, triggerRecommend: true });
+      };
+
+      const okBtn = document.createElement('button');
+      okBtn.type = 'button';
+      okBtn.className = 'ghost-tool-btn add';
+      okBtn.textContent = '다듬기 완료 ✓';
+      okBtn.onclick = ev => {
+        ev.stopPropagation();
+        saveEdit();
+      };
+
+      ta.addEventListener('input', () => autoResizeTextarea(ta));
+      ta.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' && !ev.shiftKey) {
+          ev.preventDefault();
+          saveEdit();
+        } else if (ev.key === 'Escape') {
+          state.editingBlockIdx = -1;
+          renderSentenceCanvas();
+        }
+      });
+
+      acts.append(cancelBtn, okBtn);
+      editBox.append(ta, acts);
+      item.appendChild(editBox);
+      slot.append(bg, item);
+      canvas.appendChild(slot);
+
+      requestAnimationFrame(() => {
+        autoResizeTextarea(ta);
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+      });
+      return;
+    }
+
+    const p = document.createElement('div');
+    p.className = 'sentence-text';
+    p.textContent = txt;
+    item.appendChild(p);
+
+    if (blocks.length >= 2) {
+      const dragHandle = document.createElement('span');
+      dragHandle.className = 'sentence-drag-handle';
+      dragHandle.title = '끌어서 순서 옮기기';
+      dragHandle.textContent = '⋮⋮';
+      attachDragReorderHandle(dragHandle, item, idx);
+      item.appendChild(dragHandle);
+    }
+
+    if (isSelected) {
+      const bar = document.createElement('div');
+      bar.className = 'sentence-toolbar';
+
+      const upBtn = document.createElement('button');
+      upBtn.type = 'button';
+      upBtn.className = 'sentence-act-btn';
+      upBtn.textContent = '↑ 위로';
+      upBtn.disabled = idx === 0;
+      upBtn.onclick = ev => {
+        ev.stopPropagation();
+        moveBlock(idx, idx - 1);
+      };
+
+      const downBtn = document.createElement('button');
+      downBtn.type = 'button';
+      downBtn.className = 'sentence-act-btn';
+      downBtn.textContent = '↓ 아래로';
+      downBtn.disabled = idx === blocks.length - 1;
+      downBtn.onclick = ev => {
+        ev.stopPropagation();
+        moveBlock(idx, idx + 1);
+      };
+
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'sentence-act-btn';
+      editBtn.textContent = '✎ 다듬기';
+      editBtn.onclick = ev => {
+        ev.stopPropagation();
+        state.editingBlockIdx = idx;
+        renderSentenceCanvas();
+      };
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'sentence-act-btn danger';
+      delBtn.textContent = '✕ 덜어내기';
+      delBtn.onclick = ev => {
+        ev.stopPropagation();
+        removeBlockAt(idx, slot);
+      };
+
+      bar.append(upBtn, downBtn, editBtn, delBtn);
+      item.appendChild(bar);
+    }
+
+    item.addEventListener('click', ev => {
+      ev.stopPropagation();
+      if (item._suppressClickUntil && Date.now() < item._suppressClickUntil) return;
+      state.selectedBlockIdx = state.selectedBlockIdx === idx ? -1 : idx;
+      state.editingBlockIdx = -1;
+      renderSentenceCanvas();
+    });
+
+    attachSentenceTouchGestures(slot, item, bg, idx);
+
+    slot.append(bg, item);
+    canvas.appendChild(slot);
+  });
+}
+
+function toggleDirectCompose(open) {
+  state.composeOpen = Boolean(open);
+  const box = $('composeBox');
+  const openBtn = $('openComposeBtn');
+  const inp = $('composeInput');
+  if (!box || !openBtn || !inp) return;
+
+  openBtn.classList.toggle('hidden', state.composeOpen);
+  box.classList.toggle('hidden', !state.composeOpen);
+
+  if (state.composeOpen) {
+    inp.placeholder = state.docBlocks.length === 0
+      ? '첫 문장을 직접 적어보세요...'
+      : '이어 적을 문장을 입력하세요...';
+    requestAnimationFrame(() => {
+      autoResizeTextarea(inp);
+      inp.focus();
+    });
+  } else {
+    inp.blur();
+  }
+}
+
+function submitDirectCompose() {
+  const inp = $('composeInput');
+  if (!inp) return;
+  const val = inp.value.trim();
+  if (!val) {
+    toggleDirectCompose(false);
+    return;
+  }
+  appendTextAsBlocks(val);
+  inp.value = '';
+  toggleDirectCompose(false);
+  syncBlocksToEditor({ triggerSave: true, triggerRecommend: true });
 }
 
 // ============================================================================
@@ -358,7 +907,6 @@ async function handleUnlockSubmit(e) {
     sessionStorage.setItem('dw_pin', entered);
     hideLockScreen();
     await loadBootstrap();
-    $('editor').focus();
   } else {
     input.value = '';
     toast('비밀번호가 다릅니다');
@@ -649,7 +1197,12 @@ async function selectWriting(id) {
   }
 
   const content = w.content || '';
-  $('editor').value = content;
+  state.docBlocks = parseContentToBlocks(content);
+  state.selectedBlockIdx = -1;
+  state.editingBlockIdx = -1;
+  state.justMovedIdx = -1;
+  state.lastClosedBlockCount = 0;
+  toggleDirectCompose(false);
   state.anchorPassage = null;
   state.wovenDraft = null;
   state.lastWovenContext = null;
@@ -658,6 +1211,7 @@ async function selectWriting(id) {
   state.replacingClose = false;
   state.weaveDirection = 'reson';
   resetRelationalSeen();
+  syncBlocksToEditor();
 
   setMode('write');
   renderArchive();
@@ -686,7 +1240,12 @@ async function createNewWriting() {
     state.echoes = data.echoes || [];
     state.echoIdx = 0;
     state.activeId = data.writing.id;
-    $('editor').value = '';
+    state.docBlocks = [];
+    state.selectedBlockIdx = -1;
+    state.editingBlockIdx = -1;
+    state.justMovedIdx = -1;
+    state.lastClosedBlockCount = 0;
+    toggleDirectCompose(false);
     state.anchorPassage = null;
     state.wovenDraft = null;
     state.lastWovenContext = null;
@@ -697,6 +1256,7 @@ async function createNewWriting() {
     state.relationMode = 'fresh';
     state.relationLabel = '';
     resetRelationalSeen();
+    syncBlocksToEditor();
 
     setMode('write');
     renderArchive();
@@ -709,7 +1269,6 @@ async function createNewWriting() {
     } else {
       fetchArchivePassage({ mode: 'fresh', clearAnchor: true, animate: false });
     }
-    $('editor').focus();
   }
 }
 
@@ -720,7 +1279,7 @@ function setMode(nextMode) {
     $('distillView').classList.add('hidden');
     $('leftNavBtn').textContent = '서재';
     if ($('topbarRight')) $('topbarRight').classList.remove('hidden');
-    autoResizeTextarea($('editor'));
+    renderSentenceCanvas();
     updateWriteMeta();
     renderEchoBox();
   } else {
@@ -1444,14 +2003,8 @@ function renderGhostContinuation() {
     }
   };
 
-  txtEl.onmousedown = e => e.preventDefault();
-  txtEl.onclick = triggerInsert;
-  addBtn.onmousedown = e => e.preventDefault();
-  addBtn.onclick = triggerInsert;
-
-  nextBtn.onmousedown = e => e.preventDefault();
-  nextBtn.onclick = e => {
-    e.stopPropagation();
+  const triggerNext = e => {
+    if (e) e.stopPropagation();
     document.body.classList.remove('typing');
     if (state.hasAiKey) {
       if (state.replacingClose && state.lastClosedParagraph) {
@@ -1463,6 +2016,78 @@ function renderGhostContinuation() {
       fetchNextPlainContinuation();
     }
   };
+
+  txtEl.onmousedown = e => e.preventDefault();
+  txtEl.onclick = e => {
+    if (wrap._suppressClickUntil && Date.now() < wrap._suppressClickUntil) return;
+    triggerInsert(e);
+  };
+  addBtn.onmousedown = e => e.preventDefault();
+  addBtn.onclick = triggerInsert;
+
+  nextBtn.onmousedown = e => e.preventDefault();
+  nextBtn.onclick = triggerNext;
+
+  wrap._onSwipeAdd = triggerInsert;
+  wrap._onSwipeNext = triggerNext;
+
+  if (!wrap._swipeBound) {
+    wrap._swipeBound = true;
+    let gStartX = 0;
+    let gStartY = 0;
+    let gDx = 0;
+    let gAxis = null;
+    let gTrack = false;
+
+    wrap.addEventListener('touchstart', ev => {
+      if (ev.touches.length !== 1) return;
+      gStartX = ev.touches[0].clientX;
+      gStartY = ev.touches[0].clientY;
+      gDx = 0;
+      gAxis = null;
+      gTrack = true;
+      wrap.style.transition = 'none';
+    }, { passive: true });
+
+    wrap.addEventListener('touchmove', ev => {
+      if (!gTrack || ev.touches.length !== 1) return;
+      const dx = ev.touches[0].clientX - gStartX;
+      const dy = ev.touches[0].clientY - gStartY;
+
+      if (!gAxis) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        gAxis = Math.abs(dx) > Math.abs(dy) * 1.15 ? 'x' : 'y';
+      }
+      if (gAxis !== 'x') return;
+
+      if (ev.cancelable) ev.preventDefault();
+      gDx = Math.max(-96, Math.min(96, dx));
+      wrap.style.transform = `translateX(${gDx}px)`;
+      wrap.style.opacity = String(Math.max(0.45, 1 - Math.abs(gDx) / 180));
+    }, { passive: false });
+
+    const finishGhostSwipe = () => {
+      if (!gTrack) return;
+      gTrack = false;
+      wrap.style.transition = 'transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease';
+      wrap.style.transform = '';
+      wrap.style.opacity = '';
+
+      if (gAxis === 'x' && Math.abs(gDx) >= 12) {
+        wrap._suppressClickUntil = Date.now() + 360;
+      }
+      if (gAxis === 'x' && gDx >= 60 && typeof wrap._onSwipeAdd === 'function') {
+        wrap._onSwipeAdd();
+      } else if (gAxis === 'x' && gDx <= -60 && typeof wrap._onSwipeNext === 'function') {
+        wrap._onSwipeNext();
+      }
+      gDx = 0;
+      gAxis = null;
+    };
+
+    wrap.addEventListener('touchend', finishGhostSwipe);
+    wrap.addEventListener('touchcancel', finishGhostSwipe);
+  }
 }
 
 async function fetchNextPlainContinuation() {
@@ -1493,24 +2118,16 @@ function insertPlainContinuation() {
   if (!cont || !cont.sentence) return;
 
   clearTimeout(state.autoArchiveTimer);
-  const ed = $('editor');
-  const raw = ed.value;
-
-  if (!raw.trim() || cont.appendMode === 'start') {
-    ed.value = cont.sentence;
+  if (!state.docBlocks.length || cont.appendMode === 'start') {
+    state.docBlocks = parseContentToBlocks(cont.sentence);
+    state.selectedBlockIdx = -1;
+    state.editingBlockIdx = -1;
   } else {
-    const base = raw.replace(/\s+$/g, '');
-    ed.value = `${base}\n\n${cont.sentence}`;
+    appendTextAsBlocks(cont.sentence);
   }
 
-  autoResizeTextarea(ed);
-  ed.focus();
-  ed.setSelectionRange(ed.value.length, ed.value.length);
-
-  state.lastArchiveContext = ed.value.trim();
-  updateWriteMeta();
-  renderEchoBox();
-  scheduleSave();
+  syncBlocksToEditor({ triggerSave: true });
+  state.lastArchiveContext = $('editor').value.trim();
 
   fetchArchivePassage({ mode: 'same_concept', anchor: null, animate: true });
 }
@@ -1520,45 +2137,41 @@ function insertWovenDraft() {
   if (!draft || !draft.paragraph) return;
 
   clearTimeout(state.autoWeaveTimer);
-  const ed = $('editor');
-  const raw = ed.value;
+  let addedCount = 0;
 
-  if (state.replacingClose && state.lastClosedParagraph && raw.trim().endsWith(state.lastClosedParagraph)) {
-    const idx = raw.lastIndexOf(state.lastClosedParagraph);
-    const beforeClose = raw.slice(0, idx).replace(/\s+$/g, '');
-    ed.value = beforeClose ? `${beforeClose}\n\n${draft.paragraph}` : draft.paragraph;
-  } else if (!raw.trim() || draft.appendMode === 'start') {
-    ed.value = draft.paragraph;
+  if (state.replacingClose && state.lastClosedBlockCount > 0) {
+    addedCount = appendTextAsBlocks(draft.paragraph, { replaceLastCount: state.lastClosedBlockCount });
+  } else if (!state.docBlocks.length || draft.appendMode === 'start') {
+    state.docBlocks = parseContentToBlocks(draft.paragraph);
+    state.selectedBlockIdx = -1;
+    state.editingBlockIdx = -1;
+    addedCount = state.docBlocks.length;
   } else if (draft.appendMode === 'inline') {
-    const base = raw.replace(/[ \t]+$/g, '');
-    ed.value = `${base} ${draft.paragraph}`;
+    addedCount = appendTextAsBlocks(draft.paragraph, { inline: true });
   } else {
-    const base = raw.replace(/\s+$/g, '');
-    ed.value = `${base}\n\n${draft.paragraph}`;
+    addedCount = appendTextAsBlocks(draft.paragraph);
   }
 
-  autoResizeTextarea(ed);
-  ed.focus();
-  ed.setSelectionRange(ed.value.length, ed.value.length);
-
-  state.lastWovenContext = ed.value.trim();
-  updateWriteMeta();
-  renderEchoBox();
-  scheduleSave();
+  syncBlocksToEditor({ triggerSave: true });
+  state.lastWovenContext = $('editor').value.trim();
 
   if (draft.direction !== 'close') {
     state.closedComplete = false;
     state.replacingClose = false;
     state.lastClosedParagraph = '';
+    state.lastClosedBlockCount = 0;
     state.weaveDirection = 'reson';
     requestWeave('reson', { forceNew: false });
   } else {
     state.wovenDraft = null;
     state.closedComplete = true;
     state.replacingClose = false;
-    state.lastClosedParagraph = draft.paragraph;
+    state.lastClosedBlockCount = addedCount;
+    state.lastClosedParagraph = addedCount > 0
+      ? state.docBlocks.slice(-addedCount).join('\n\n')
+      : draft.paragraph;
     renderWeaveCard();
-    toast('글의 매듭이 지어졌습니다. 내 말투로 다듬은 뒤 발행해보세요');
+    toast('글의 매듭이 지어졌습니다. 문장을 터치해 다듬거나 발행해보세요');
   }
 }
 
@@ -1617,8 +2230,10 @@ function formatCatLabel(cat) {
 async function fetchArchivePassage({ mode = 'fresh', clearAnchor = false, anchor = undefined, animate = false } = {}) {
   const ed = $('editor');
   const rawVal = ed ? ed.value : '';
-  const cursorPos = ed ? (ed.selectionStart ?? rawVal.length) : rawVal.length;
-  const recentText = rawVal.slice(Math.max(0, cursorPos - 160), cursorPos + 40);
+  const selectedSentence = (state.selectedBlockIdx >= 0 && state.docBlocks[state.selectedBlockIdx])
+    ? state.docBlocks[state.selectedBlockIdx]
+    : '';
+  const recentText = selectedSentence || rawVal.slice(Math.max(0, rawVal.length - 180));
 
   const seenSet = state.seenByMode[mode] || state.seenByMode.fresh;
   const effectiveAnchor = clearAnchor ? null : (anchor !== undefined ? anchor : state.anchorPassage);
@@ -1832,33 +2447,9 @@ async function quoteArchivePassage() {
   const p = state.currentPassage;
   if (!p) return;
 
-  const ed = $('editor');
-  const start = ed.selectionStart ?? ed.value.length;
-  const end = ed.selectionEnd ?? ed.value.length;
-  const before = ed.value.slice(0, start);
-  const after = ed.value.slice(end);
   const quoteBlock = `"${p.text}" — ${p.source}`;
-
-  let prefix = '';
-  let cleanBefore = before;
-  if (before.trim().length === 0) cleanBefore = '';
-  else if (/\n\s*\n$/.test(before)) prefix = '';
-  else if (/\n$/.test(before)) prefix = '\n';
-  else prefix = '\n\n';
-
-  const cleanAfter = after.replace(/^\n+/, '');
-  const middle = `${prefix}${quoteBlock}\n\n`;
-
-  ed.value = cleanBefore + middle + cleanAfter;
-  const caretPos = cleanBefore.length + middle.length;
-
-  autoResizeTextarea(ed);
-  ed.focus();
-  ed.setSelectionRange(caretPos, caretPos);
-
-  updateWriteMeta();
-  renderEchoBox();
-  scheduleSave();
+  appendTextAsBlocks(quoteBlock);
+  syncBlocksToEditor({ triggerSave: true });
 
   state.anchorPassage = p;
   resetRelationalSeen();
@@ -1919,24 +2510,17 @@ async function saveNow({ manual = false } = {}) {
 // 발행 화면: 문장 선별 + 끝문장 올리기 + Threads / X 분할 발행
 // ============================================================================
 function prepareDistillSegments() {
-  const ed = $('editor');
   const w = getActiveWriting();
-  const full = ed.value.trim();
-  const selected = ed.value.substring(ed.selectionStart, ed.selectionEnd).trim();
-
-  const rawLines = full
-    .split(/\n+/)
-    .map(s => s.trim())
-    .filter(Boolean);
+  const rawLines = state.docBlocks.length > 0
+    ? [...state.docBlocks]
+    : $('editor').value.trim().split(/\n+/).map(s => s.trim()).filter(Boolean);
 
   const savedSet = new Set((w && Array.isArray(w.crystals)) ? w.crystals : []);
 
   state.hookInverted = false;
   state.segments = rawLines.map(text => ({
     text,
-    picked: selected
-      ? selected.includes(text)
-      : savedSet.has(text)
+    picked: savedSet.has(text)
   }));
 }
 
@@ -2165,35 +2749,60 @@ window.addEventListener('DOMContentLoaded', () => {
 
   const ed = $('editor');
 
-  ed.addEventListener('input', () => {
-    autoResizeTextarea(ed);
-    updateWriteMeta();
-    renderEchoBox();
-    scheduleSave();
+  if ($('openComposeBtn')) {
+    $('openComposeBtn').addEventListener('click', e => {
+      e.stopPropagation();
+      state.selectedBlockIdx = -1;
+      state.editingBlockIdx = -1;
+      renderSentenceCanvas();
+      toggleDirectCompose(true);
+    });
+  }
 
-    if (state.closedComplete || state.replacingClose) {
-      if (!state.lastClosedParagraph || !ed.value.trim().endsWith(state.lastClosedParagraph)) {
-        state.closedComplete = false;
-        state.replacingClose = false;
-        state.lastClosedParagraph = '';
+  if ($('cancelComposeBtn')) {
+    $('cancelComposeBtn').addEventListener('click', e => {
+      e.stopPropagation();
+      toggleDirectCompose(false);
+      document.body.classList.remove('typing');
+    });
+  }
+
+  if ($('submitComposeBtn')) {
+    $('submitComposeBtn').addEventListener('click', e => {
+      e.stopPropagation();
+      submitDirectCompose();
+      document.body.classList.remove('typing');
+    });
+  }
+
+  if ($('composeInput')) {
+    const cInp = $('composeInput');
+    cInp.addEventListener('input', () => {
+      autoResizeTextarea(cInp);
+      document.body.classList.add('typing');
+      clearTimeout(state.typingTimer);
+      state.typingTimer = setTimeout(() => document.body.classList.remove('typing'), 1800);
+    });
+    cInp.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        submitDirectCompose();
+        document.body.classList.remove('typing');
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        toggleDirectCompose(false);
+        document.body.classList.remove('typing');
       }
-    }
-
-    if (state.hasAiKey) {
-      scheduleAutoWeaveAfterEdit();
-    } else {
-      scheduleAutoArchiveAfterEdit();
-    }
-
-    document.body.classList.add('typing');
-    clearTimeout(state.typingTimer);
-    state.typingTimer = setTimeout(() => document.body.classList.remove('typing'), 1800);
-  });
+    });
+  }
 
   $('mainCanvas').addEventListener('click', e => {
     if (state.mode === 'write' && (e.target === $('mainCanvas') || e.target === $('paper'))) {
-      ed.focus();
-      ed.setSelectionRange(ed.value.length, ed.value.length);
+      if (state.selectedBlockIdx !== -1 || state.editingBlockIdx !== -1) {
+        state.selectedBlockIdx = -1;
+        state.editingBlockIdx = -1;
+        renderSentenceCanvas();
+      }
     }
   });
 
@@ -2342,7 +2951,8 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     state.pin = '';
     sessionStorage.removeItem('dw_pin');
-    ed.value = '';
+    state.docBlocks = [];
+    syncBlocksToEditor();
     closeArchive();
     showLockScreen();
   });

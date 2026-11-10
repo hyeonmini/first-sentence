@@ -217,6 +217,291 @@ body.typing .topbar:hover {
   color: var(--faint);
 }
 
+/* ============================================================================
+ * 모바일 퍼스트: 터치·스와이프 문장 블록 캔버스
+ * ============================================================================ */
+.touch-canvas-hint {
+  font-family: 'Noto Sans KR', -apple-system, sans-serif;
+  font-size: 11.5px;
+  color: var(--faint);
+  margin-bottom: 12px;
+  letter-spacing: -0.01em;
+  word-break: keep-all;
+  user-select: none;
+}
+
+.sentence-canvas {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sentence-swipe-slot {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.sentence-swipe-slot.removing {
+  opacity: 0;
+  transform: translateX(-60px);
+}
+
+.sentence-swipe-bg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  font-family: 'Noto Sans KR', -apple-system, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease, background 0.14s ease;
+}
+
+.sentence-swipe-bg.swiping-left {
+  opacity: 1;
+  background: rgba(196, 92, 78, 0.12);
+  color: #c96557;
+  justify-content: flex-end;
+}
+
+.sentence-swipe-bg.swiping-left.ready {
+  background: rgba(196, 92, 78, 0.22);
+  font-weight: 600;
+}
+
+.sentence-swipe-bg.swiping-right {
+  opacity: 1;
+  background: var(--btn-bg);
+  color: var(--accent);
+  justify-content: flex-start;
+}
+
+.sentence-swipe-bg.swiping-right.ready {
+  background: rgba(180, 146, 96, 0.18);
+  font-weight: 600;
+}
+
+.sentence-item {
+  position: relative;
+  background: var(--bg);
+  padding: 6px 28px 6px 12px;
+  margin-left: -12px;
+  border-left: 2px solid transparent;
+  border-radius: 0 8px 8px 0;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.sentence-item.swiping {
+  transition: none;
+}
+
+.sentence-item.selected {
+  border-left-color: var(--accent);
+  background: var(--btn-bg);
+  margin-left: 0;
+  padding-left: 12px;
+  border-radius: 6px;
+}
+
+.sentence-item.just-moved {
+  animation: pulseWarmMove 0.55s ease;
+}
+
+@keyframes pulseWarmMove {
+  0% { background: rgba(180, 146, 96, 0.22); }
+  100% { background: transparent; }
+}
+
+.sentence-item.drag-over-top {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.sentence-item.drag-over-bottom {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.sentence-item.dragging-source {
+  opacity: 0.42;
+}
+
+.sentence-text {
+  font-family: 'Noto Serif KR', Georgia, serif;
+  font-size: 17.5px;
+  font-weight: 400;
+  line-height: 1.9;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  word-break: keep-all;
+}
+
+.sentence-item.is-quote .sentence-text {
+  color: var(--quote);
+  font-size: 16.5px;
+}
+
+.sentence-drag-handle {
+  position: absolute;
+  top: 8px;
+  right: 4px;
+  width: 24px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Noto Sans KR', sans-serif;
+  font-size: 13px;
+  letter-spacing: -1px;
+  color: var(--sub);
+  opacity: 0.26;
+  touch-action: none;
+  cursor: grab;
+  transition: opacity 0.16s ease, color 0.16s ease;
+}
+
+.sentence-item:hover .sentence-drag-handle,
+.sentence-item.selected .sentence-drag-handle {
+  opacity: 0.72;
+  color: var(--accent);
+}
+
+.sentence-toolbar {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--line);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sentence-act-btn {
+  appearance: none;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3.5px 10px;
+  font-family: 'Noto Sans KR', -apple-system, sans-serif;
+  font-size: 11.5px;
+  color: var(--sub);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.sentence-act-btn:hover,
+.sentence-act-btn:active {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.sentence-act-btn:disabled {
+  opacity: 0.32;
+  pointer-events: none;
+}
+
+.sentence-act-btn.danger {
+  margin-left: auto;
+  color: #c96557;
+}
+
+.sentence-edit-box {
+  width: 100%;
+}
+
+.sentence-edit-input {
+  display: block;
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  font-family: 'Noto Serif KR', Georgia, serif;
+  font-size: 16.5px;
+  line-height: 1.85;
+  color: var(--text);
+}
+
+.sentence-edit-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* 2순위 보조: 직접 한 줄 타이핑 입력창 */
+.direct-compose-wrap {
+  margin-top: 12px;
+}
+
+.open-compose-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-family: 'Noto Sans KR', -apple-system, sans-serif;
+  font-size: 12px;
+  color: var(--sub);
+  opacity: 0.78;
+  cursor: pointer;
+  transition: opacity 0.16s ease, color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.open-compose-btn:hover,
+.open-compose-btn:active {
+  opacity: 1;
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--btn-bg);
+}
+
+.compose-box {
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: var(--btn-bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.compose-input {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  font-family: 'Noto Serif KR', Georgia, serif;
+  font-size: 16.5px;
+  line-height: 1.85;
+  color: var(--text);
+}
+
+.compose-input::placeholder {
+  color: var(--faint);
+}
+
+.compose-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 /* 본문 안에 희미하게 비치는 다음 일상 문장 (터치하여 바로 이어 쓰기) */
 .ghost-line-wrap {
   margin-top: 10px;
@@ -1320,6 +1605,25 @@ body.typing .passage-card:hover {
   opacity: 1;
   visibility: visible;
   transform: translate(-50%, 0) scale(1);
+}
+
+.toast.show.interactive {
+  pointer-events: auto;
+}
+
+.toast-undo-btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--line);
+  margin-left: 4px;
+  padding: 1px 2px 1px 10px;
+  font-family: 'Noto Sans KR', -apple-system, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 .toast-ornament {
