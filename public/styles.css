@@ -688,7 +688,18 @@ body.typing .ghost-line-wrap:hover {
   padding-top: 20px;
   border-top: 1px solid var(--line);
   cursor: default;
-  transition: opacity 0.35s ease;
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.passage-card.awaiting-reveal {
+  opacity: 0 !important;
+  transform: translateY(10px);
+  pointer-events: none;
+  transition: none;
+}
+
+.passage-card.slow-reveal {
+  transition: opacity 1.65s cubic-bezier(0.16, 1, 0.3, 1), transform 1.65s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 body.typing .passage-card {

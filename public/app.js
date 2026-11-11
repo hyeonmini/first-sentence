@@ -152,6 +152,9 @@ const state = {
   lastClosedBlockCount: 0,
   composeOpen: false,
   firstLineComposing: false,
+  passageRevealed: false,
+  passageRevealTimer: null,
+  passageSlowTimer: null,
   segments: [],
   hookInverted: false,
 
@@ -415,6 +418,10 @@ function syncBlocksToEditor({ triggerSave = false, triggerRecommend = false } = 
       state.lastClosedParagraph = '';
       state.lastClosedBlockCount = 0;
     }
+  }
+
+  if (state.docBlocks.length > 0 && !state.passageRevealed) {
+    revealPassageCardImmediately();
   }
 
   updateWriteMeta();
@@ -843,6 +850,59 @@ function renderSentenceCanvas() {
     slot.append(bg, item);
     canvas.appendChild(slot);
   });
+}
+
+function resetAndScheduleOpeningPassageReveal(delayMs = 2000) {
+  clearTimeout(state.passageRevealTimer);
+  clearTimeout(state.passageSlowTimer);
+  state.passageRevealed = false;
+  const card = $('passageCard');
+  if (card) {
+    card.classList.remove('slow-reveal');
+    card.classList.add('awaiting-reveal');
+  }
+  state.passageRevealTimer = setTimeout(() => {
+    triggerSlowPassageReveal();
+  }, delayMs);
+}
+
+function bumpOpeningPassageIdleTimer(delayMs = 2000) {
+  if (state.passageRevealed || state.docBlocks.length > 0) return;
+  clearTimeout(state.passageRevealTimer);
+  state.passageRevealTimer = setTimeout(() => {
+    triggerSlowPassageReveal();
+  }, delayMs);
+}
+
+function triggerSlowPassageReveal() {
+  clearTimeout(state.passageRevealTimer);
+  state.passageRevealTimer = null;
+  if (state.passageRevealed) return;
+  state.passageRevealed = true;
+  document.body.classList.remove('typing');
+  const card = $('passageCard');
+  if (!card) return;
+  requestAnimationFrame(() => {
+    card.classList.add('slow-reveal');
+    requestAnimationFrame(() => {
+      card.classList.remove('awaiting-reveal');
+      clearTimeout(state.passageSlowTimer);
+      state.passageSlowTimer = setTimeout(() => {
+        card.classList.remove('slow-reveal');
+      }, 1750);
+    });
+  });
+}
+
+function revealPassageCardImmediately() {
+  clearTimeout(state.passageRevealTimer);
+  clearTimeout(state.passageSlowTimer);
+  state.passageRevealTimer = null;
+  state.passageRevealed = true;
+  const card = $('passageCard');
+  if (card) {
+    card.classList.remove('slow-reveal', 'awaiting-reveal');
+  }
 }
 
 function syncFirstLineUi() {
@@ -1278,6 +1338,11 @@ async function selectWriting(id) {
   state.replacingClose = false;
   state.weaveDirection = 'reson';
   resetRelationalSeen();
+  if (state.docBlocks.length > 0) {
+    revealPassageCardImmediately();
+  } else {
+    resetAndScheduleOpeningPassageReveal(2000);
+  }
   syncBlocksToEditor();
 
   setMode('write');
@@ -1326,6 +1391,7 @@ async function createNewWriting() {
     state.relationMode = 'fresh';
     state.relationLabel = '';
     resetRelationalSeen();
+    resetAndScheduleOpeningPassageReveal(2000);
     syncBlocksToEditor();
 
     setMode('write');
@@ -2856,6 +2922,7 @@ window.addEventListener('DOMContentLoaded', () => {
     fInp.addEventListener('input', () => {
       autoResizeTextarea(fInp);
       syncFirstLineUi();
+      bumpOpeningPassageIdleTimer(2000);
       if (state.docBlocks.length === 0 && ed) {
         ed.value = fInp.value.trim();
         updateWriteMeta();
@@ -2974,6 +3041,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('aiSettingBtn').addEventListener('click', () => {
     closeArchive();
     setMode('write');
+    revealPassageCardImmediately();
     state.editingProvider = state.aiProvider || 'gemini';
     state.keyEditorOpen = true;
     renderAiKeyBanner();
