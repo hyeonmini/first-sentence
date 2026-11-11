@@ -151,6 +151,7 @@ const state = {
   justMovedIdx: -1,
   lastClosedBlockCount: 0,
   composeOpen: false,
+  firstLineComposing: false,
   segments: [],
   hookInverted: false,
 
@@ -419,6 +420,7 @@ function syncBlocksToEditor({ triggerSave = false, triggerRecommend = false } = 
   updateWriteMeta();
   renderEchoBox();
   renderSentenceCanvas();
+  renderGhostContinuation();
 
   if (triggerSave) scheduleSave();
   if (triggerRecommend) {
@@ -653,15 +655,26 @@ function attachDragReorderHandle(handle, sourceItem, fromIdx) {
 function renderSentenceCanvas() {
   const canvas = $('sentenceCanvas');
   const hint = $('touchCanvasHint');
+  const firstWrap = $('firstLineWrap');
+  const directWrap = $('directComposeWrap');
   const openBtn = $('openComposeBtn');
   if (!canvas) return;
 
   const blocks = state.docBlocks;
-  if (hint) {
-    hint.classList.toggle('hidden', blocks.length === 0);
+  const isEmpty = blocks.length === 0;
+
+  if (firstWrap) {
+    firstWrap.classList.toggle('hidden', !isEmpty);
+    if (isEmpty) syncFirstLineUi();
   }
-  if (openBtn) {
-    openBtn.textContent = blocks.length === 0 ? '✎ 직접 첫 문장 적어 넣기' : '✎ 직접 문장 적어 넣기';
+  if (hint) {
+    hint.classList.toggle('hidden', isEmpty);
+  }
+  if (directWrap) {
+    directWrap.classList.toggle('hidden', isEmpty);
+  }
+  if (openBtn && !isEmpty) {
+    openBtn.textContent = '✎ 직접 문장 적어 넣기';
     openBtn.classList.toggle('hidden', state.composeOpen);
   }
 
@@ -830,6 +843,58 @@ function renderSentenceCanvas() {
     slot.append(bg, item);
     canvas.appendChild(slot);
   });
+}
+
+function syncFirstLineUi() {
+  const wrap = $('firstLineWrap');
+  const inp = $('firstLineInput');
+  const acts = $('firstLineActions');
+  if (!wrap || !inp) return;
+  const hasVal = inp.value.length > 0 || Boolean(state.firstLineComposing);
+  const hasTrimmed = inp.value.trim().length > 0;
+  wrap.classList.toggle('has-text', hasVal);
+  wrap.classList.toggle('focused', document.activeElement === inp);
+  if (acts) acts.classList.toggle('hidden', !hasTrimmed);
+}
+
+function commitFirstLineInput({ triggerSave = true, triggerRecommend = true } = {}) {
+  const inp = $('firstLineInput');
+  if (!inp) return false;
+  const val = inp.value.trim();
+  if (!val) {
+    inp.value = '';
+    syncFirstLineUi();
+    return false;
+  }
+  appendTextAsBlocks(val);
+  inp.value = '';
+  inp.blur();
+  syncFirstLineUi();
+  syncBlocksToEditor({ triggerSave, triggerRecommend });
+  return true;
+}
+
+function flushPendingInputs() {
+  commitFirstLineInput({ triggerSave: false, triggerRecommend: false });
+  if (state.composeOpen && $('composeInput') && $('composeInput').value.trim()) {
+    const val = $('composeInput').value.trim();
+    appendTextAsBlocks(val);
+    $('composeInput').value = '';
+    toggleDirectCompose(false);
+    syncBlocksToEditor({ triggerSave: false, triggerRecommend: false });
+  }
+}
+
+function maybeFocusFirstLineOnDesktop() {
+  if (state.mode !== 'write' || state.docBlocks.length > 0) return;
+  const isFinePointer = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  const inp = $('firstLineInput');
+  if (isFinePointer && inp) {
+    requestAnimationFrame(() => {
+      inp.focus();
+      syncFirstLineUi();
+    });
+  }
 }
 
 function toggleDirectCompose(open) {
@@ -1197,6 +1262,8 @@ async function selectWriting(id) {
   }
 
   const content = w.content || '';
+  if ($('firstLineInput')) $('firstLineInput').value = '';
+  state.firstLineComposing = false;
   state.docBlocks = parseContentToBlocks(content);
   state.selectedBlockIdx = -1;
   state.editingBlockIdx = -1;
@@ -1214,6 +1281,7 @@ async function selectWriting(id) {
   syncBlocksToEditor();
 
   setMode('write');
+  maybeFocusFirstLineOnDesktop();
   renderArchive();
   renderAiKeyBanner();
 
@@ -1240,6 +1308,8 @@ async function createNewWriting() {
     state.echoes = data.echoes || [];
     state.echoIdx = 0;
     state.activeId = data.writing.id;
+    if ($('firstLineInput')) $('firstLineInput').value = '';
+    state.firstLineComposing = false;
     state.docBlocks = [];
     state.selectedBlockIdx = -1;
     state.editingBlockIdx = -1;
@@ -1259,6 +1329,7 @@ async function createNewWriting() {
     syncBlocksToEditor();
 
     setMode('write');
+    maybeFocusFirstLineOnDesktop();
     renderArchive();
     closeArchive();
     renderAiKeyBanner();
@@ -1283,6 +1354,7 @@ function setMode(nextMode) {
     updateWriteMeta();
     renderEchoBox();
   } else {
+    flushPendingInputs();
     const ed = $('editor');
     const full = ed.value.trim();
     if (!full) {
@@ -1336,15 +1408,7 @@ function updateWriteMeta() {
 
 function renderEchoBox() {
   const echoBox = $('echoBox');
-  if (state.echoes.length > 0 && !$('editor').value.trim()) {
-    const curEcho = state.echoes[state.echoIdx % state.echoes.length];
-    echoBox.classList.remove('hidden');
-    $('echoLabel').textContent = `지난 여운 (${formatShortDate(curEcho.date)})`;
-    $('echoText').textContent = curEcho.text;
-    $('echoMore').classList.toggle('hidden', state.echoes.length <= 1);
-  } else {
-    echoBox.classList.add('hidden');
-  }
+  if (echoBox) echoBox.classList.add('hidden');
 }
 
 // ============================================================================
@@ -1965,7 +2029,10 @@ function renderGhostContinuation() {
   }
 
   const ed = $('editor');
-  const isBlankEditor = !(ed && ed.value.trim());
+  const firstPending = ($('firstLineInput') && state.docBlocks.length === 0)
+    ? $('firstLineInput').value.trim()
+    : '';
+  const isBlankEditor = !(ed && ed.value.trim()) && !firstPending;
 
   let ghostSentence = '';
   let useAiDraft = false;
@@ -1974,6 +2041,9 @@ function renderGhostContinuation() {
     if (state.wovenDraft && state.wovenDraft.paragraph && !state.weaveLoading) {
       ghostSentence = state.wovenDraft.paragraph;
       useAiDraft = true;
+    } else if (!state.replacingClose && state.plainContinuation && state.plainContinuation.sentence) {
+      ghostSentence = state.plainContinuation.sentence;
+      useAiDraft = false;
     }
   } else if (state.plainContinuation && state.plainContinuation.sentence) {
     ghostSentence = state.plainContinuation.sentence;
@@ -1986,12 +2056,18 @@ function renderGhostContinuation() {
   }
 
   wrap.classList.remove('hidden');
+  wrap.classList.toggle('is-opening', isBlankEditor);
+  const leadEl = $('ghostLineLead');
+  if (leadEl) {
+    leadEl.textContent = '제안 문장 · 터치하여 첫 문장으로 채택';
+    leadEl.classList.toggle('hidden', !isBlankEditor);
+  }
   txtEl.textContent = ghostSentence;
   addBtn.textContent = isBlankEditor
-    ? '+ 첫 문장으로 시작 ↵'
+    ? '+ 채택하여 시작 ↵'
     : (useAiDraft && state.replacingClose)
       ? '+ 이 매듭으로 바꾸기 ↵'
-      : '+ 터치하여 잇기 ↵';
+      : '+ 채택 ↵';
 
   const triggerInsert = e => {
     if (e) e.stopPropagation();
@@ -2118,6 +2194,8 @@ function insertPlainContinuation() {
   if (!cont || !cont.sentence) return;
 
   clearTimeout(state.autoArchiveTimer);
+  commitFirstLineInput({ triggerSave: false, triggerRecommend: false });
+
   if (!state.docBlocks.length || cont.appendMode === 'start') {
     state.docBlocks = parseContentToBlocks(cont.sentence);
     state.selectedBlockIdx = -1;
@@ -2129,7 +2207,12 @@ function insertPlainContinuation() {
   syncBlocksToEditor({ triggerSave: true });
   state.lastArchiveContext = $('editor').value.trim();
 
-  fetchArchivePassage({ mode: 'same_concept', anchor: null, animate: true });
+  if (state.hasAiKey) {
+    fetchNextPlainContinuation();
+    requestWeave('reson', { forceNew: false });
+  } else {
+    fetchArchivePassage({ mode: 'same_concept', anchor: null, animate: true });
+  }
 }
 
 function insertWovenDraft() {
@@ -2137,6 +2220,7 @@ function insertWovenDraft() {
   if (!draft || !draft.paragraph) return;
 
   clearTimeout(state.autoWeaveTimer);
+  commitFirstLineInput({ triggerSave: false, triggerRecommend: false });
   let addedCount = 0;
 
   if (state.replacingClose && state.lastClosedBlockCount > 0) {
@@ -2206,6 +2290,7 @@ function scheduleAutoArchiveAfterEdit() {
       state.anchorPassage = null;
       state.relationMode = 'fresh';
       state.relationLabel = '';
+      fetchNextPlainContinuation();
       renderArchivePassageCard(false);
       return;
     }
@@ -2447,6 +2532,7 @@ async function quoteArchivePassage() {
   const p = state.currentPassage;
   if (!p) return;
 
+  commitFirstLineInput({ triggerSave: false, triggerRecommend: false });
   const quoteBlock = `"${p.text}" — ${p.source}`;
   appendTextAsBlocks(quoteBlock);
   syncBlocksToEditor({ triggerSave: true });
@@ -2471,6 +2557,7 @@ function scheduleSave() {
 async function saveNow({ manual = false } = {}) {
   clearTimeout(state.saveTimer);
   state.saveTimer = null;
+  if (manual) flushPendingInputs();
 
   const w = getActiveWriting();
   if (!w) return;
@@ -2749,6 +2836,59 @@ window.addEventListener('DOMContentLoaded', () => {
 
   const ed = $('editor');
 
+  if ($('firstLineInput')) {
+    const fInp = $('firstLineInput');
+    fInp.addEventListener('focus', () => {
+      syncFirstLineUi();
+    });
+    fInp.addEventListener('blur', () => {
+      state.firstLineComposing = false;
+      syncFirstLineUi();
+    });
+    fInp.addEventListener('compositionstart', () => {
+      state.firstLineComposing = true;
+      syncFirstLineUi();
+    });
+    fInp.addEventListener('compositionend', () => {
+      state.firstLineComposing = false;
+      syncFirstLineUi();
+    });
+    fInp.addEventListener('input', () => {
+      autoResizeTextarea(fInp);
+      syncFirstLineUi();
+      if (state.docBlocks.length === 0 && ed) {
+        ed.value = fInp.value.trim();
+        updateWriteMeta();
+        renderGhostContinuation();
+        scheduleSave();
+        if (state.hasAiKey) {
+          scheduleAutoWeaveAfterEdit();
+        } else {
+          scheduleAutoArchiveAfterEdit();
+        }
+      }
+      document.body.classList.add('typing');
+      clearTimeout(state.typingTimer);
+      state.typingTimer = setTimeout(() => document.body.classList.remove('typing'), 1800);
+    });
+    fInp.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        commitFirstLineInput({ triggerSave: true, triggerRecommend: true });
+        document.body.classList.remove('typing');
+      }
+    });
+  }
+
+  if ($('commitFirstLineBtn')) {
+    $('commitFirstLineBtn').addEventListener('mousedown', e => e.preventDefault());
+    $('commitFirstLineBtn').addEventListener('click', e => {
+      e.stopPropagation();
+      commitFirstLineInput({ triggerSave: true, triggerRecommend: true });
+      document.body.classList.remove('typing');
+    });
+  }
+
   if ($('openComposeBtn')) {
     $('openComposeBtn').addEventListener('click', e => {
       e.stopPropagation();
@@ -2804,13 +2944,6 @@ window.addEventListener('DOMContentLoaded', () => {
         renderSentenceCanvas();
       }
     }
-  });
-
-  $('echoBox').addEventListener('click', e => {
-    e.stopPropagation();
-    if (state.echoes.length <= 1) return;
-    state.echoIdx = (state.echoIdx + 1) % state.echoes.length;
-    renderEchoBox();
   });
 
   $('leftNavBtn').addEventListener('click', () => {

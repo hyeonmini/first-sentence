@@ -218,6 +218,94 @@ body.typing .topbar:hover {
 }
 
 /* ============================================================================
+ * 첫 문장 단계: 커서가 깜박이는 첫 줄 입력 영역
+ * ============================================================================ */
+.first-line-wrap {
+  margin-bottom: 10px;
+}
+
+.first-line-field {
+  position: relative;
+  width: 100%;
+}
+
+.first-cursor-overlay {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  right: 0;
+  height: calc(17.5px * 1.95);
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  font-family: 'Noto Serif KR', Georgia, serif;
+  font-size: 17.5px;
+  font-weight: 400;
+  line-height: 1.95;
+  letter-spacing: -0.01em;
+}
+
+.blinking-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.22em;
+  background: var(--accent);
+  border-radius: 1px;
+  margin-right: 5px;
+  flex-shrink: 0;
+  animation: firstCaretBlink 1.06s steps(1, end) infinite;
+}
+
+@keyframes firstCaretBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.first-placeholder {
+  color: var(--faint);
+  transition: opacity 0.15s ease;
+}
+
+.first-line-wrap.focused .blinking-caret {
+  display: none;
+}
+
+.first-line-wrap.focused .first-placeholder {
+  padding-left: 2px;
+  opacity: 0.65;
+}
+
+.first-line-wrap.has-text .first-cursor-overlay {
+  display: none;
+}
+
+.first-line-input {
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  padding: 4px 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  font-family: 'Noto Serif KR', Georgia, serif;
+  font-size: 17.5px;
+  font-weight: 400;
+  line-height: 1.95;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  caret-color: var(--accent);
+}
+
+.first-line-actions {
+  margin-top: 6px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ============================================================================
  * 모바일 퍼스트: 터치·스와이프 문장 블록 캔버스
  * ============================================================================ */
 .touch-canvas-hint {
@@ -502,7 +590,7 @@ body.typing .topbar:hover {
   gap: 6px;
 }
 
-/* 본문 안에 희미하게 비치는 다음 일상 문장 (터치하여 바로 이어 쓰기) */
+/* 본문 안에 희미하게 비치는 다음 일상 문장 (터치하여 바로 채택) */
 .ghost-line-wrap {
   margin-top: 10px;
   padding: 6px 0 4px;
@@ -510,7 +598,26 @@ body.typing .topbar:hover {
   line-height: 1.9;
   letter-spacing: -0.01em;
   word-break: keep-all;
-  transition: opacity 0.25s ease;
+  transition: opacity 0.25s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.ghost-line-wrap.is-opening {
+  margin-top: 6px;
+  padding: 12px 14px 11px;
+  background: var(--btn-bg);
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+}
+
+.ghost-line-lead {
+  font-family: 'Noto Sans KR', -apple-system, sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  opacity: 0.85;
+  margin-bottom: 4px;
+  letter-spacing: -0.01em;
+  user-select: none;
 }
 
 body.typing .ghost-line-wrap {
@@ -523,10 +630,14 @@ body.typing .ghost-line-wrap:hover {
 
 .ghost-line-text {
   color: var(--sub);
-  opacity: 0.48;
+  opacity: 0.56;
   cursor: pointer;
   border-bottom: 1px dashed transparent;
   transition: opacity 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.ghost-line-wrap.is-opening .ghost-line-text {
+  opacity: 0.78;
 }
 
 .ghost-line-text:hover,
