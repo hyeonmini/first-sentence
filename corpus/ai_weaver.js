@@ -220,8 +220,8 @@ function buildSystemInstruction(styleOptions = {}) {
 5. 반드시 순수 JSON 객체로만 응답하세요 (코드 블록 없이):
 {
   "paragraph": "본문에 바로 이어 붙일 자연스럽고 담백한 문장 (줄바꿈 없이)",
-  "quote": "배경에 참고한 작품·사상가의 실제 원문 발췌 1문장 (인용할 만한 원문 글귀가 있을 때만 작성, 없으면 빈 문자열)",
-  "source": "발췌 출처 정보 (예: 김소연, 《마음사전》)",
+  "quote": "배경에 참고한 작품·사상가의 실제 원문 발췌 1문장 (본문에 이미 적힌 인용구와 겹치지 않는 새로운 글귀가 있을 때만 작성, 없으면 빈 문자열)",
+  "source": "발췌 출처 정보 (quote가 비어 있으면 빈 문자열, 있을 때만 예: 김소연, 《마음사전》)",
   "inspiration": "배경에 참고한 작가·작품과 짧은 모티프 (예: 김소연 《마음사전》 · 흔들리며 버티는 마음)",
   "author": "참고한 작가/출전 이름 (예: 김소연)"
 }`;
@@ -507,7 +507,8 @@ ${editorText}
 중요 지침:
 1. 사용자가 위 인용구를 본문에 적어 두었습니다. 절대 또 다른 외부 철학자나 낯선 비유를 새로 끌어오지 마세요!
 2. 위 인용구 속의 구체적인 단어와 뜻(그리고 앞서 적힌 본문 흐름이 있다면 그 맥락까지)을 그대로 이어받아, 보통 사람이 이 글귀를 읽고 자기 일상이나 솔직한 마음을 돌아보며 적을 법한 ${lenCfg.ask}을(를) 평범하고 담백한 1인칭 일상어로 써 주세요.
-3. "inspiration"에는 방금 인용된 "${ctx.quoteInfo.source}"와 연결된 핵심 주제를 적어 주세요.`;
+3. "quote"에는 방금 본문에 인용된 위 글귀를 절대 다시 반복하지 마세요(새로운 원문 발췌가 없다면 "quote"와 "source"는 빈 문자열 ""로 두세요).
+4. "inspiration"에는 방금 인용된 "${ctx.quoteInfo.source}"와 연결된 핵심 주제를 적어 주세요.`;
   } else {
     const priorContextBlock = ctx.earlierParagraphs.length > 0
       ? `\n[앞선 문단 흐름]\n"""\n${ctx.earlierParagraphs.join('\n\n')}\n"""\n`
@@ -533,14 +534,29 @@ ${ctx.lastParagraph}
   const rawQuote = (hasCurrentDraft && currentDraft.quote !== undefined)
     ? String(currentDraft.quote || '')
     : String(parsed.quote || '');
-  const cleanQuote = rawQuote
+  let cleanQuote = rawQuote
     .replace(/\s*\n+\s*/g, ' ')
     .replace(/^["“]+|["”]+$/g, '')
     .trim();
 
-  const cleanSource = (hasCurrentDraft && currentDraft.source !== undefined)
+  let cleanSource = (hasCurrentDraft && currentDraft.source !== undefined)
     ? String(currentDraft.source || '').trim()
     : String(parsed.source || parsed.author || '').trim();
+
+  // 본문에 이미 들어간 글귀와 동일하거나 중복되는 경우 원문 발췌 추천에서 제외
+  if (cleanQuote) {
+    const norm = s => String(s || '').replace(/["“”'’\s.,!?…—―-]+/g, '');
+    const nQuote = norm(cleanQuote);
+    const nEditor = norm(editorText);
+    const nLastQuote = ctx.quoteInfo ? norm(ctx.quoteInfo.text) : '';
+    if (
+      (nEditor && nQuote.length >= 6 && nEditor.includes(nQuote.slice(0, Math.min(18, nQuote.length)))) ||
+      (nLastQuote && (nQuote === nLastQuote || nLastQuote.includes(nQuote) || nQuote.includes(nLastQuote)))
+    ) {
+      cleanQuote = '';
+      cleanSource = '';
+    }
+  }
 
   return {
     paragraph,

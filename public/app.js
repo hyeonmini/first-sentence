@@ -2241,6 +2241,11 @@ function insertExcerptQuote() {
   clearTimeout(state.autoWeaveTimer);
   commitFirstLineInput({ triggerSave: false, triggerRecommend: false });
 
+  if (draft.author && !state.recentAuthors.includes(draft.author)) {
+    state.recentAuthors.push(draft.author);
+    if (state.recentAuthors.length > 12) state.recentAuthors.shift();
+  }
+
   const src = String(draft.source || draft.author || draft.inspiration || '').trim();
   const quoteBlock = src ? `"${draft.quote}" — ${src}` : `"${draft.quote}"`;
 
@@ -2253,7 +2258,7 @@ function insertExcerptQuote() {
   state.lastClosedParagraph = '';
   state.lastClosedBlockCount = 0;
   state.weaveDirection = 'reson';
-  requestWeave('reson', { forceNew: false });
+  requestWeave('reson', { forceNew: true });
 }
 
 function insertWovenDraft() {
