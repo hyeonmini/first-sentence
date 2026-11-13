@@ -1962,6 +1962,10 @@ function renderWeaveCard() {
   const activeDir = isBlankEditor ? 'opening' : state.weaveDirection;
   const provName = PROVIDER_META[state.aiProvider]?.label || 'AI';
 
+  const excerptBox = $('passageExcerptBox');
+  const excerptTextEl = $('passageExcerptText');
+  const excerptBtn = $('excerptInsertBtn');
+
   relEl.classList.remove('hidden');
   if (state.weaveLoading) {
     const customWitty = state.lastStyleChanged && STYLE_CHANGE_WITTY[state.lastStyleChanged];
@@ -1970,20 +1974,39 @@ function renderWeaveCard() {
     relEl.textContent = `${item.status} · ${provName}`;
     quoteEl.textContent = item.text;
     sourceEl.textContent = item.sub;
+    if (excerptBox) excerptBox.classList.add('hidden');
   } else if (state.closedComplete) {
     relEl.textContent = '✦ 매듭 완료 · 글이 여미어졌습니다';
     quoteEl.textContent = '마지막 문장이 본문에 더해졌습니다. 내 말투로 가볍게 다듬은 뒤 발행하거나, 아래에서 다른 마무리 문장으로 바꿔볼 수 있습니다.';
     sourceEl.textContent = '';
+    if (excerptBox) excerptBox.classList.add('hidden');
   } else if (state.wovenDraft) {
     relEl.textContent = WEAVE_LABELS[state.wovenDraft.direction] || '다음 한 호흡';
     quoteEl.textContent = state.wovenDraft.paragraph;
     sourceEl.textContent = state.wovenDraft.inspiration
       ? `— ${state.wovenDraft.inspiration}`
       : '';
+    if (excerptBox && excerptTextEl && state.wovenDraft.quote) {
+      excerptBox.classList.remove('hidden');
+      const srcLabel = state.wovenDraft.source || state.wovenDraft.author || '';
+      excerptTextEl.textContent = srcLabel
+        ? `“${state.wovenDraft.quote}” — ${srcLabel}`
+        : `“${state.wovenDraft.quote}”`;
+      const onInsertQuote = e => {
+        if (e) e.stopPropagation();
+        document.body.classList.remove('typing');
+        insertExcerptQuote();
+      };
+      excerptTextEl.onclick = onInsertQuote;
+      if (excerptBtn) excerptBtn.onclick = onInsertQuote;
+    } else if (excerptBox) {
+      excerptBox.classList.add('hidden');
+    }
   } else {
     relEl.textContent = WEAVE_LABELS[activeDir] || '다음 한 호흡';
     quoteEl.textContent = '방향을 누르면 이어질 문장을 제안합니다.';
     sourceEl.textContent = '';
+    if (excerptBox) excerptBox.classList.add('hidden');
   }
 
   renderStyleTuner();
@@ -2145,7 +2168,7 @@ function bindPassageBubbleInteractions({ canAdopt, onAdopt, onNext }) {
   bubble._boundUnified = true;
 
   bubble.addEventListener('click', ev => {
-    if (ev.target && ev.target.closest && ev.target.closest('button, a')) return;
+    if (ev.target && ev.target.closest && ev.target.closest('button, a, #passageExcerptBox')) return;
     if (bubble._suppressClickUntil && Date.now() < bubble._suppressClickUntil) return;
     if (typeof bubble._canAdopt === 'function' && !bubble._canAdopt()) return;
     if (typeof bubble._onAdopt === 'function') bubble._onAdopt();
@@ -2209,6 +2232,28 @@ function bindPassageBubbleInteractions({ canAdopt, onAdopt, onNext }) {
 
   bubble.addEventListener('touchend', finishBubbleSwipe);
   bubble.addEventListener('touchcancel', finishBubbleSwipe);
+}
+
+function insertExcerptQuote() {
+  const draft = state.wovenDraft;
+  if (!draft || !draft.quote) return;
+
+  clearTimeout(state.autoWeaveTimer);
+  commitFirstLineInput({ triggerSave: false, triggerRecommend: false });
+
+  const src = String(draft.source || draft.author || draft.inspiration || '').trim();
+  const quoteBlock = src ? `"${draft.quote}" — ${src}` : `"${draft.quote}"`;
+
+  appendTextAsBlocks(quoteBlock);
+  syncBlocksToEditor({ triggerSave: true });
+  state.lastWovenContext = $('editor').value.trim();
+
+  state.closedComplete = false;
+  state.replacingClose = false;
+  state.lastClosedParagraph = '';
+  state.lastClosedBlockCount = 0;
+  state.weaveDirection = 'reson';
+  requestWeave('reson', { forceNew: false });
 }
 
 function insertWovenDraft() {
@@ -2385,6 +2430,7 @@ function renderArchivePassageCard(animate = false) {
     }
 
     $('passageQuote').textContent = p.text;
+    if ($('passageExcerptBox')) $('passageExcerptBox').classList.add('hidden');
 
     const srcEl = $('passageSource');
     srcEl.innerHTML = '';

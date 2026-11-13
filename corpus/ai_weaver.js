@@ -220,6 +220,8 @@ function buildSystemInstruction(styleOptions = {}) {
 5. 반드시 순수 JSON 객체로만 응답하세요 (코드 블록 없이):
 {
   "paragraph": "본문에 바로 이어 붙일 자연스럽고 담백한 문장 (줄바꿈 없이)",
+  "quote": "배경에 참고한 작품·사상가의 실제 원문 발췌 1문장 (인용할 만한 원문 글귀가 있을 때만 작성, 없으면 빈 문자열)",
+  "source": "발췌 출처 정보 (예: 김소연, 《마음사전》)",
   "inspiration": "배경에 참고한 작가·작품과 짧은 모티프 (예: 김소연 《마음사전》 · 흔들리며 버티는 마음)",
   "author": "참고한 작가/출전 이름 (예: 김소연)"
 }`;
@@ -528,8 +530,22 @@ ${ctx.lastParagraph}
   const paragraph = trimToSentenceLimit(rawParagraph, lenCfg.maxSentences);
   if (!paragraph) throw new Error('빈 문단이 반환되었습니다.');
 
+  const rawQuote = (hasCurrentDraft && currentDraft.quote !== undefined)
+    ? String(currentDraft.quote || '')
+    : String(parsed.quote || '');
+  const cleanQuote = rawQuote
+    .replace(/\s*\n+\s*/g, ' ')
+    .replace(/^["“]+|["”]+$/g, '')
+    .trim();
+
+  const cleanSource = (hasCurrentDraft && currentDraft.source !== undefined)
+    ? String(currentDraft.source || '').trim()
+    : String(parsed.source || parsed.author || '').trim();
+
   return {
     paragraph,
+    quote: cleanQuote,
+    source: cleanSource,
     inspiration: hasCurrentDraft && currentDraft.inspiration
       ? currentDraft.inspiration
       : String(parsed.inspiration || parsed.author || '').trim(),

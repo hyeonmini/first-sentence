@@ -729,6 +729,64 @@ body.typing .passage-card:hover {
   transition: opacity 0.16s ease;
 }
 
+.passage-excerpt-box {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--btn-bg);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.passage-excerpt-box:hover {
+  border-color: var(--btn-border);
+}
+
+.passage-excerpt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.passage-excerpt-label {
+  font-family: 'Noto Sans KR', -apple-system, sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--sub);
+}
+
+.excerpt-insert-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-family: 'Noto Sans KR', -apple-system, sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.excerpt-insert-btn:hover,
+.excerpt-insert-btn:active {
+  border-color: var(--accent);
+  background: var(--card);
+}
+
+.passage-excerpt-text {
+  font-family: 'Noto Serif KR', Georgia, serif;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--sub);
+  word-break: keep-all;
+  cursor: pointer;
+}
+
 .passage-bubble-foot {
   margin-top: 14px;
   padding-top: 11px;

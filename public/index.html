@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=25" />
+  <link rel="stylesheet" href="/styles.css?v=26" />
   <script>
     (function () {
       var pref = localStorage.getItem('dw_theme_pref') || 'auto';
@@ -121,6 +121,13 @@
           <div id="passageBubble" class="passage-bubble">
             <div id="passageRel" class="passage-rel hidden"></div>
             <blockquote id="passageQuote" class="passage-quote"></blockquote>
+            <div id="passageExcerptBox" class="passage-excerpt-box hidden">
+              <div class="passage-excerpt-head">
+                <span class="passage-excerpt-label">원문 글귀 그대로</span>
+                <button id="excerptInsertBtn" class="excerpt-insert-btn" type="button">+ 출처와 함께 인용 ↵</button>
+              </div>
+              <p id="passageExcerptText" class="passage-excerpt-text"></p>
+            </div>
             <div class="passage-bubble-foot">
               <div id="passageSource" class="passage-source"></div>
               <button id="bubbleInsertBtn" class="bubble-insert-btn" type="button">+ 채택하기 ↵</button>
@@ -228,6 +235,6 @@
   <!-- 하단 문학적 토스트 팝업 -->
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="/app.js?v=25"></script>
+  <script src="/app.js?v=26"></script>
 </body>
 </html>
