@@ -218,8 +218,13 @@ body.typing .topbar:hover {
 }
 
 /* ============================================================================
- * 첫 문장 단계: 커서가 깜박이는 첫 줄 입력 영역
+ * 내 원고 종이 영역 & 첫 문장 커서
  * ============================================================================ */
+.manuscript-zone {
+  min-height: 84px;
+  padding-bottom: 8px;
+}
+
 .first-line-wrap {
   margin-bottom: 10px;
 }
@@ -590,71 +595,6 @@ body.typing .topbar:hover {
   gap: 6px;
 }
 
-/* 본문 안에 희미하게 비치는 다음 일상 문장 (터치하여 바로 채택) */
-.ghost-line-wrap {
-  margin-top: 10px;
-  padding: 6px 0 4px;
-  font-size: 17px;
-  line-height: 1.9;
-  letter-spacing: -0.01em;
-  word-break: keep-all;
-  transition: opacity 0.25s ease, background 0.2s ease, border-color 0.2s ease;
-}
-
-.ghost-line-wrap.is-opening {
-  margin-top: 6px;
-  padding: 12px 14px 11px;
-  background: var(--btn-bg);
-  border: 1px dashed var(--line);
-  border-radius: 10px;
-}
-
-.ghost-line-lead {
-  font-family: 'Noto Sans KR', -apple-system, sans-serif;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--accent);
-  opacity: 0.85;
-  margin-bottom: 4px;
-  letter-spacing: -0.01em;
-  user-select: none;
-}
-
-body.typing .ghost-line-wrap {
-  opacity: 0.22;
-}
-
-body.typing .ghost-line-wrap:hover {
-  opacity: 1;
-}
-
-.ghost-line-text {
-  color: var(--sub);
-  opacity: 0.56;
-  cursor: pointer;
-  border-bottom: 1px dashed transparent;
-  transition: opacity 0.18s ease, color 0.18s ease, border-color 0.18s ease;
-}
-
-.ghost-line-wrap.is-opening .ghost-line-text {
-  opacity: 0.78;
-}
-
-.ghost-line-text:hover,
-.ghost-line-text:active {
-  color: var(--text);
-  opacity: 0.86;
-  border-bottom-color: var(--line);
-}
-
-.ghost-line-tools {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 8px;
-  vertical-align: middle;
-}
-
 .ghost-tool-btn {
   appearance: none;
   background: transparent;
@@ -682,13 +622,22 @@ body.typing .ghost-line-wrap:hover {
   background: var(--btn-bg);
 }
 
-/* 노트 아래 조용히 펼쳐진 철학·종교·문학 한 구절 */
+/* ============================================================================
+ * 본문과 별도로 분리된 단일 ‘글귀 · 다음 문장 추천’ 데크
+ * ============================================================================ */
 .passage-card {
-  margin-top: 26px;
-  padding-top: 20px;
-  border-top: 1px solid var(--line);
+  margin-top: 32px;
+  padding: 15px 16px 15px;
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
   cursor: default;
   transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+[data-theme="light"] .passage-card {
+  box-shadow: 0 8px 26px rgba(38, 28, 16, 0.05);
 }
 
 .passage-card.awaiting-reveal {
@@ -703,44 +652,65 @@ body.typing .ghost-line-wrap:hover {
 }
 
 body.typing .passage-card {
-  opacity: 0.25;
+  opacity: 0.28;
 }
 
 body.typing .passage-card:hover {
   opacity: 1;
 }
 
+.passage-deck-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 11px;
+  padding: 0 2px;
+  user-select: none;
+}
+
+.passage-deck-title {
+  font-family: 'Noto Sans KR', -apple-system, sans-serif;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.01em;
+}
+
+.passage-deck-hint {
+  font-family: 'Noto Sans KR', -apple-system, sans-serif;
+  font-size: 11px;
+  color: var(--sub);
+  opacity: 0.78;
+  white-space: nowrap;
+}
+
+@media (max-width: 420px) {
+  .passage-deck-hint {
+    font-size: 10.5px;
+  }
+}
+
 .passage-bubble {
   position: relative;
-  background: var(--btn-bg);
+  background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 4px 16px 16px 16px;
-  padding: 16px 18px 14px;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  border-left: 3px solid var(--accent-border);
+  border-radius: 12px;
+  padding: 16px 17px 13px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.16s ease, opacity 0.16s ease;
 }
 
-.passage-bubble::before {
-  content: '';
-  position: absolute;
-  top: -7px;
-  left: 18px;
-  width: 12px;
-  height: 12px;
-  background: var(--bg);
-  border-top: 1px solid var(--line);
-  border-left: 1px solid var(--line);
-  transform: rotate(45deg);
+.passage-bubble:hover {
+  border-color: var(--btn-border);
+  border-left-color: var(--accent);
 }
 
-.passage-bubble::after {
-  content: '';
-  position: absolute;
-  top: -6px;
-  left: 18px;
-  width: 12px;
-  height: 12px;
-  background: var(--btn-bg);
-  transform: rotate(45deg);
+.passage-bubble:active {
+  transform: scale(0.992);
 }
 
 .passage-rel {

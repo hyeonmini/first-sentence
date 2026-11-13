@@ -427,7 +427,7 @@ function syncBlocksToEditor({ triggerSave = false, triggerRecommend = false } = 
   updateWriteMeta();
   renderEchoBox();
   renderSentenceCanvas();
-  renderGhostContinuation();
+  updatePassageDeckHeader();
 
   if (triggerSave) scheduleSave();
   if (triggerRecommend) {
@@ -1341,7 +1341,7 @@ async function selectWriting(id) {
   if (state.docBlocks.length > 0) {
     revealPassageCardImmediately();
   } else {
-    resetAndScheduleOpeningPassageReveal(2000);
+    resetAndScheduleOpeningPassageReveal(1500);
   }
   syncBlocksToEditor();
 
@@ -1351,7 +1351,6 @@ async function selectWriting(id) {
   renderAiKeyBanner();
 
   if (state.hasAiKey) {
-    fetchNextPlainContinuation();
     await requestWeave(content.trim() ? 'reson' : 'opening', { forceNew: false });
   } else if (content.trim()) {
     await fetchArchivePassage({ mode: 'same_concept', anchor: null, animate: false });
@@ -1391,7 +1390,7 @@ async function createNewWriting() {
     state.relationMode = 'fresh';
     state.relationLabel = '';
     resetRelationalSeen();
-    resetAndScheduleOpeningPassageReveal(2000);
+    resetAndScheduleOpeningPassageReveal(1500);
     syncBlocksToEditor();
 
     setMode('write');
@@ -1401,7 +1400,6 @@ async function createNewWriting() {
     renderAiKeyBanner();
 
     if (state.hasAiKey) {
-      fetchNextPlainContinuation();
       requestWeave('opening', { forceNew: false });
     } else {
       fetchArchivePassage({ mode: 'fresh', clearAnchor: true, animate: false });
@@ -1993,26 +1991,40 @@ function renderWeaveCard() {
   if (rightBtn) rightBtn.classList.add('hidden');
 
   const bubbleInsertBtn = $('bubbleInsertBtn');
+  const triggerAiAdopt = () => {
+    document.body.classList.remove('typing');
+    if (state.closedComplete && !state.weaveLoading) {
+      setMode('distill');
+    } else if (!state.weaveLoading && state.wovenDraft) {
+      insertWovenDraft();
+    }
+  };
+  const triggerAiNext = () => {
+    document.body.classList.remove('typing');
+    if ((state.closedComplete || state.replacingClose) && state.lastClosedParagraph) {
+      state.replacingClose = true;
+      requestWeave('close', { forceNew: true, replaceCloseTarget: state.lastClosedParagraph });
+    } else {
+      requestWeave(isBlankEditor ? 'opening' : state.weaveDirection, { forceNew: true });
+    }
+  };
+
   if (bubbleInsertBtn) {
     if (state.closedComplete && !state.weaveLoading) {
       bubbleInsertBtn.textContent = '발행 화면으로 →';
       bubbleInsertBtn.disabled = false;
-      bubbleInsertBtn.onclick = e => {
-        e.stopPropagation();
-        setMode('distill');
-      };
     } else {
       bubbleInsertBtn.textContent = isBlankEditor
-        ? '+ 이 단락으로 시작 ↵'
+        ? '+ 첫 문장으로 채택 ↵'
         : state.replacingClose
           ? '+ 이 매듭으로 바꾸기 ↵'
-          : (state.wovenDraft?.appendMode === 'inline' ? '+ 문장 이어 붙이기 ↵' : '+ 본문에 잇기 ↵');
+          : '+ 다음 문장으로 채택 ↵';
       bubbleInsertBtn.disabled = state.weaveLoading || !state.wovenDraft;
-      bubbleInsertBtn.onclick = e => {
-        e.stopPropagation();
-        insertWovenDraft();
-      };
     }
+    bubbleInsertBtn.onclick = e => {
+      e.stopPropagation();
+      triggerAiAdopt();
+    };
   }
 
   btnsEl.innerHTML = '';
@@ -2022,7 +2034,7 @@ function renderWeaveCard() {
 
   const groupLbl = document.createElement('span');
   groupLbl.className = 'group-label';
-  groupLbl.textContent = isBlankEditor ? '새 제안' : '사유 방향';
+  groupLbl.textContent = isBlankEditor ? '새 추천' : '사유 방향';
   fetchGroup.appendChild(groupLbl);
 
   const optsWrap = document.createElement('div');
@@ -2060,225 +2072,143 @@ function renderWeaveCard() {
   reweaveBtn.type = 'button';
   reweaveBtn.className = 'passage-btn';
   reweaveBtn.textContent = isBlankEditor
-    ? '다른 첫 단락 ↻'
+    ? '다른 첫 문장 ↻'
     : (state.closedComplete || state.replacingClose)
       ? '다른 매듭 ↻'
-      : '다시 짓기 ↻';
+      : '다른 문장 ↻';
   reweaveBtn.onmousedown = e => e.preventDefault();
   reweaveBtn.onclick = e => {
     e.stopPropagation();
-    document.body.classList.remove('typing');
-    if ((state.closedComplete || state.replacingClose) && state.lastClosedParagraph) {
-      state.replacingClose = true;
-      requestWeave('close', { forceNew: true, replaceCloseTarget: state.lastClosedParagraph });
-    } else {
-      requestWeave(isBlankEditor ? 'opening' : state.weaveDirection, { forceNew: true });
-    }
+    triggerAiNext();
   };
   optsWrap.appendChild(reweaveBtn);
 
   fetchGroup.appendChild(optsWrap);
   btnsEl.appendChild(fetchGroup);
-  renderGhostContinuation();
+
+  updatePassageDeckHeader();
+  bindPassageBubbleInteractions({
+    canAdopt: () => (state.closedComplete && !state.weaveLoading) || (!state.weaveLoading && Boolean(state.wovenDraft)),
+    onAdopt: triggerAiAdopt,
+    onNext: triggerAiNext
+  });
 }
 
-function renderGhostContinuation() {
-  const wrap = $('ghostLineWrap');
-  const txtEl = $('ghostLineText');
-  const addBtn = $('ghostAddBtn');
-  const nextBtn = $('ghostNextBtn');
-  if (!wrap || !txtEl || !addBtn || !nextBtn) return;
-
-  if (state.hasAiKey && state.closedComplete) {
-    wrap.classList.add('hidden');
-    return;
-  }
-
-  const ed = $('editor');
+function isManuscriptBlank() {
   const firstPending = ($('firstLineInput') && state.docBlocks.length === 0)
     ? $('firstLineInput').value.trim()
     : '';
-  const isBlankEditor = !(ed && ed.value.trim()) && !firstPending;
-
-  let ghostSentence = '';
-  let useAiDraft = false;
-
-  if (state.hasAiKey) {
-    if (state.wovenDraft && state.wovenDraft.paragraph && !state.weaveLoading) {
-      ghostSentence = state.wovenDraft.paragraph;
-      useAiDraft = true;
-    } else if (!state.replacingClose && state.plainContinuation && state.plainContinuation.sentence) {
-      ghostSentence = state.plainContinuation.sentence;
-      useAiDraft = false;
-    }
-  } else if (state.plainContinuation && state.plainContinuation.sentence) {
-    ghostSentence = state.plainContinuation.sentence;
-    useAiDraft = false;
-  }
-
-  if (!ghostSentence) {
-    wrap.classList.add('hidden');
-    return;
-  }
-
-  wrap.classList.remove('hidden');
-  wrap.classList.toggle('is-opening', isBlankEditor);
-  const leadEl = $('ghostLineLead');
-  if (leadEl) {
-    leadEl.textContent = '제안 문장 · 터치하여 첫 문장으로 채택';
-    leadEl.classList.toggle('hidden', !isBlankEditor);
-  }
-  txtEl.textContent = ghostSentence;
-  addBtn.textContent = isBlankEditor
-    ? '+ 채택하여 시작 ↵'
-    : (useAiDraft && state.replacingClose)
-      ? '+ 이 매듭으로 바꾸기 ↵'
-      : '+ 채택 ↵';
-
-  const triggerInsert = e => {
-    if (e) e.stopPropagation();
-    document.body.classList.remove('typing');
-    if (useAiDraft) {
-      insertWovenDraft();
-    } else {
-      insertPlainContinuation();
-    }
-  };
-
-  const triggerNext = e => {
-    if (e) e.stopPropagation();
-    document.body.classList.remove('typing');
-    if (state.hasAiKey) {
-      if (state.replacingClose && state.lastClosedParagraph) {
-        requestWeave('close', { forceNew: true, replaceCloseTarget: state.lastClosedParagraph });
-      } else {
-        requestWeave(isBlankEditor ? 'opening' : state.weaveDirection, { forceNew: true });
-      }
-    } else {
-      fetchNextPlainContinuation();
-    }
-  };
-
-  txtEl.onmousedown = e => e.preventDefault();
-  txtEl.onclick = e => {
-    if (wrap._suppressClickUntil && Date.now() < wrap._suppressClickUntil) return;
-    triggerInsert(e);
-  };
-  addBtn.onmousedown = e => e.preventDefault();
-  addBtn.onclick = triggerInsert;
-
-  nextBtn.onmousedown = e => e.preventDefault();
-  nextBtn.onclick = triggerNext;
-
-  wrap._onSwipeAdd = triggerInsert;
-  wrap._onSwipeNext = triggerNext;
-
-  if (!wrap._swipeBound) {
-    wrap._swipeBound = true;
-    let gStartX = 0;
-    let gStartY = 0;
-    let gDx = 0;
-    let gAxis = null;
-    let gTrack = false;
-
-    wrap.addEventListener('touchstart', ev => {
-      if (ev.touches.length !== 1) return;
-      gStartX = ev.touches[0].clientX;
-      gStartY = ev.touches[0].clientY;
-      gDx = 0;
-      gAxis = null;
-      gTrack = true;
-      wrap.style.transition = 'none';
-    }, { passive: true });
-
-    wrap.addEventListener('touchmove', ev => {
-      if (!gTrack || ev.touches.length !== 1) return;
-      const dx = ev.touches[0].clientX - gStartX;
-      const dy = ev.touches[0].clientY - gStartY;
-
-      if (!gAxis) {
-        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-        gAxis = Math.abs(dx) > Math.abs(dy) * 1.15 ? 'x' : 'y';
-      }
-      if (gAxis !== 'x') return;
-
-      if (ev.cancelable) ev.preventDefault();
-      gDx = Math.max(-96, Math.min(96, dx));
-      wrap.style.transform = `translateX(${gDx}px)`;
-      wrap.style.opacity = String(Math.max(0.45, 1 - Math.abs(gDx) / 180));
-    }, { passive: false });
-
-    const finishGhostSwipe = () => {
-      if (!gTrack) return;
-      gTrack = false;
-      wrap.style.transition = 'transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease';
-      wrap.style.transform = '';
-      wrap.style.opacity = '';
-
-      if (gAxis === 'x' && Math.abs(gDx) >= 12) {
-        wrap._suppressClickUntil = Date.now() + 360;
-      }
-      if (gAxis === 'x' && gDx >= 60 && typeof wrap._onSwipeAdd === 'function') {
-        wrap._onSwipeAdd();
-      } else if (gAxis === 'x' && gDx <= -60 && typeof wrap._onSwipeNext === 'function') {
-        wrap._onSwipeNext();
-      }
-      gDx = 0;
-      gAxis = null;
-    };
-
-    wrap.addEventListener('touchend', finishGhostSwipe);
-    wrap.addEventListener('touchcancel', finishGhostSwipe);
-  }
-}
-
-async function fetchNextPlainContinuation() {
   const ed = $('editor');
-  const rawVal = ed ? ed.value : '';
-  const res = await apiFetch('/api/continuations/next', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      editorText: rawVal,
-      excludeTexts: state.seenContinuations.slice(-24)
-    })
-  });
-  if (!res.ok) return;
-  const cont = await res.json();
-  if (cont && cont.sentence) {
-    state.plainContinuation = cont;
-    if (!state.seenContinuations.includes(cont.sentence)) {
-      state.seenContinuations.push(cont.sentence);
-      if (state.seenContinuations.length > 30) state.seenContinuations.shift();
+  return state.docBlocks.length === 0 && !(ed && ed.value.trim()) && !firstPending;
+}
+
+function updatePassageDeckHeader() {
+  const titleEl = $('passageDeckTitle');
+  const hintEl = $('passageDeckHint');
+  const insertBtn = $('bubbleInsertBtn');
+  const isBlank = isManuscriptBlank();
+
+  if (titleEl) {
+    if (state.hasAiKey && state.closedComplete) {
+      titleEl.textContent = '✦ 매듭 완료';
+    } else if (isBlank) {
+      titleEl.textContent = '✦ 첫 문장 · 글귀 추천';
+    } else {
+      titleEl.textContent = '✦ 다음 문장 · 글귀 추천';
     }
-    renderGhostContinuation();
+  }
+
+  if (hintEl) {
+    if (state.hasAiKey && state.closedComplete) {
+      hintEl.textContent = '문장을 다듬거나 발행해보세요';
+    } else if (state.hasAiKey) {
+      hintEl.textContent = '카드 터치로 채택 · 좌측 밀어 다른 문장';
+    } else {
+      hintEl.textContent = '카드 터치로 채택 · 좌측 밀어 다른 글귀';
+    }
+  }
+
+  if (insertBtn && !(state.hasAiKey && state.closedComplete) && !(state.hasAiKey && state.replacingClose)) {
+    insertBtn.textContent = isBlank ? '+ 첫 문장으로 채택 ↵' : '+ 다음 문장으로 채택 ↵';
   }
 }
 
-function insertPlainContinuation() {
-  const cont = state.plainContinuation;
-  if (!cont || !cont.sentence) return;
+function bindPassageBubbleInteractions({ canAdopt, onAdopt, onNext }) {
+  const bubble = $('passageBubble');
+  if (!bubble) return;
 
-  clearTimeout(state.autoArchiveTimer);
-  commitFirstLineInput({ triggerSave: false, triggerRecommend: false });
+  bubble._canAdopt = canAdopt;
+  bubble._onAdopt = onAdopt;
+  bubble._onNext = onNext;
 
-  if (!state.docBlocks.length || cont.appendMode === 'start') {
-    state.docBlocks = parseContentToBlocks(cont.sentence);
-    state.selectedBlockIdx = -1;
-    state.editingBlockIdx = -1;
-  } else {
-    appendTextAsBlocks(cont.sentence);
-  }
+  if (bubble._boundUnified) return;
+  bubble._boundUnified = true;
 
-  syncBlocksToEditor({ triggerSave: true });
-  state.lastArchiveContext = $('editor').value.trim();
+  bubble.addEventListener('click', ev => {
+    if (ev.target && ev.target.closest && ev.target.closest('button, a')) return;
+    if (bubble._suppressClickUntil && Date.now() < bubble._suppressClickUntil) return;
+    if (typeof bubble._canAdopt === 'function' && !bubble._canAdopt()) return;
+    if (typeof bubble._onAdopt === 'function') bubble._onAdopt();
+  });
 
-  if (state.hasAiKey) {
-    fetchNextPlainContinuation();
-    requestWeave('reson', { forceNew: false });
-  } else {
-    fetchArchivePassage({ mode: 'same_concept', anchor: null, animate: true });
-  }
+  let bStartX = 0;
+  let bStartY = 0;
+  let bDx = 0;
+  let bAxis = null;
+  let bTrack = false;
+
+  bubble.addEventListener('touchstart', ev => {
+    if (ev.touches.length !== 1) return;
+    bStartX = ev.touches[0].clientX;
+    bStartY = ev.touches[0].clientY;
+    bDx = 0;
+    bAxis = null;
+    bTrack = true;
+    bubble.style.transition = 'none';
+  }, { passive: true });
+
+  bubble.addEventListener('touchmove', ev => {
+    if (!bTrack || ev.touches.length !== 1) return;
+    const dx = ev.touches[0].clientX - bStartX;
+    const dy = ev.touches[0].clientY - bStartY;
+
+    if (!bAxis) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      bAxis = Math.abs(dx) > Math.abs(dy) * 1.15 ? 'x' : 'y';
+    }
+    if (bAxis !== 'x') return;
+
+    if (ev.cancelable) ev.preventDefault();
+    bDx = Math.max(-96, Math.min(96, dx));
+    bubble.style.transform = `translateX(${bDx}px)`;
+    bubble.style.opacity = String(Math.max(0.5, 1 - Math.abs(bDx) / 200));
+  }, { passive: false });
+
+  const finishBubbleSwipe = () => {
+    if (!bTrack) return;
+    bTrack = false;
+    bubble.style.transition = 'transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease';
+    bubble.style.transform = '';
+    bubble.style.opacity = '';
+
+    if (bAxis === 'x' && Math.abs(bDx) >= 12) {
+      bubble._suppressClickUntil = Date.now() + 360;
+    }
+    if (bAxis === 'x' && bDx >= 60) {
+      if ((!bubble._canAdopt || bubble._canAdopt()) && typeof bubble._onAdopt === 'function') {
+        bubble._onAdopt();
+      }
+    } else if (bAxis === 'x' && bDx <= -60) {
+      if (typeof bubble._onNext === 'function') {
+        bubble._onNext();
+      }
+    }
+    bDx = 0;
+    bAxis = null;
+  };
+
+  bubble.addEventListener('touchend', finishBubbleSwipe);
+  bubble.addEventListener('touchcancel', finishBubbleSwipe);
 }
 
 function insertWovenDraft() {
@@ -2356,7 +2286,6 @@ function scheduleAutoArchiveAfterEdit() {
       state.anchorPassage = null;
       state.relationMode = 'fresh';
       state.relationLabel = '';
-      fetchNextPlainContinuation();
       renderArchivePassageCard(false);
       return;
     }
@@ -2420,7 +2349,6 @@ async function fetchArchivePassage({ mode = 'fresh', clearAnchor = false, anchor
   }
   if (!data.passage) {
     $('passageCard').classList.add('hidden');
-    renderGhostContinuation();
     return;
   }
 
@@ -2472,14 +2400,28 @@ function renderArchivePassageCard(animate = false) {
     const hasAnchor = Boolean(state.anchorPassage);
     const isUserAnchor = Boolean(state.anchorPassage && state.anchorPassage.isUserText);
 
-    // 1. 말풍선 내부 우하단: 본문에 인용하는 주요 액션 버튼
+    // 1. 카드 내부 우하단 및 카드 터치: 다음(또는 첫) 문장으로 채택하는 주요 액션
+    const isBlank = isManuscriptBlank();
+    const triggerArchiveAdopt = () => {
+      document.body.classList.remove('typing');
+      quoteArchivePassage();
+    };
+    const triggerArchiveNext = () => {
+      document.body.classList.remove('typing');
+      fetchArchivePassage({
+        mode: state.anchorPassage ? state.relationMode : 'fresh',
+        clearAnchor: !state.anchorPassage,
+        animate: true
+      });
+    };
+
     const bubbleInsertBtn = $('bubbleInsertBtn');
     if (bubbleInsertBtn) {
-      bubbleInsertBtn.textContent = hasAnchor ? '+ 이 글귀 인용 ↵' : '+ 본문에 인용 ↵';
+      bubbleInsertBtn.textContent = isBlank ? '+ 첫 문장으로 채택 ↵' : '+ 다음 문장으로 채택 ↵';
       bubbleInsertBtn.disabled = false;
       bubbleInsertBtn.onclick = e => {
         e.stopPropagation();
-        quoteArchivePassage();
+        triggerArchiveAdopt();
       };
     }
 
@@ -2579,7 +2521,12 @@ function renderArchivePassageCard(animate = false) {
       catBar.appendChild(catGroup);
     }
 
-    renderGhostContinuation();
+    updatePassageDeckHeader();
+    bindPassageBubbleInteractions({
+      canAdopt: () => Boolean(state.currentPassage),
+      onAdopt: triggerArchiveAdopt,
+      onNext: triggerArchiveNext
+    });
   };
 
   if (animate) {
@@ -2922,11 +2869,11 @@ window.addEventListener('DOMContentLoaded', () => {
     fInp.addEventListener('input', () => {
       autoResizeTextarea(fInp);
       syncFirstLineUi();
-      bumpOpeningPassageIdleTimer(2000);
+      bumpOpeningPassageIdleTimer(1500);
       if (state.docBlocks.length === 0 && ed) {
         ed.value = fInp.value.trim();
         updateWriteMeta();
-        renderGhostContinuation();
+        updatePassageDeckHeader();
         scheduleSave();
         if (state.hasAiKey) {
           scheduleAutoWeaveAfterEdit();

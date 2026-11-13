@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=23" />
+  <link rel="stylesheet" href="/styles.css?v=24" />
   <script>
     (function () {
       var pref = localStorage.getItem('dw_theme_pref') || 'auto';
@@ -60,72 +60,70 @@
           tabindex="-1"
         ></textarea>
 
-        <!-- 첫 문장 단계: 커서가 깜박이는 첫 줄 입력 영역 -->
-        <div id="firstLineWrap" class="first-line-wrap">
-          <div class="first-line-field">
-            <div id="firstCursorOverlay" class="first-cursor-overlay" aria-hidden="true">
-              <span class="blinking-caret"></span><span class="first-placeholder">첫 문장을 적어보세요…</span>
+        <!-- 내 원고 종이 영역 -->
+        <div id="manuscriptZone" class="manuscript-zone">
+          <!-- 첫 문장 단계: 커서가 깜박이는 첫 줄 입력 영역 -->
+          <div id="firstLineWrap" class="first-line-wrap">
+            <div class="first-line-field">
+              <div id="firstCursorOverlay" class="first-cursor-overlay" aria-hidden="true">
+                <span class="blinking-caret"></span><span class="first-placeholder">첫 문장을 적어보세요…</span>
+              </div>
+              <textarea
+                id="firstLineInput"
+                class="first-line-input"
+                rows="1"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+              ></textarea>
             </div>
-            <textarea
-              id="firstLineInput"
-              class="first-line-input"
-              rows="1"
-              autocomplete="off"
-              autocorrect="off"
-              autocapitalize="off"
-              spellcheck="false"
-            ></textarea>
+            <div id="firstLineActions" class="first-line-actions hidden">
+              <button id="commitFirstLineBtn" class="ghost-tool-btn add" type="button">+ 문장 넣기 ↵</button>
+            </div>
           </div>
-          <div id="firstLineActions" class="first-line-actions hidden">
-            <button id="commitFirstLineBtn" class="ghost-tool-btn add" type="button">+ 문장 넣기 ↵</button>
+
+          <!-- 모바일 퍼스트: 터치·스와이프 문장 블록 캔버스 -->
+          <div id="touchCanvasHint" class="touch-canvas-hint hidden">
+            문장을 터치해 순서 이동·다듬기 · 왼쪽으로 밀어 덜어내기
           </div>
-        </div>
+          <div id="sentenceCanvas" class="sentence-canvas"></div>
 
-        <!-- 모바일 퍼스트: 터치·스와이프 문장 블록 캔버스 -->
-        <div id="touchCanvasHint" class="touch-canvas-hint hidden">
-          문장을 터치해 순서 이동·다듬기 · 왼쪽으로 밀어 덜어내기
-        </div>
-        <div id="sentenceCanvas" class="sentence-canvas"></div>
-
-        <!-- 커서(또는 본문) 바로 아래: 터치하여 제안된 문장 채택 -->
-        <div id="ghostLineWrap" class="ghost-line-wrap hidden">
-          <div id="ghostLineLead" class="ghost-line-lead hidden">제안 문장 · 터치하여 채택</div>
-          <span id="ghostLineText" class="ghost-line-text" role="button" tabindex="0" title="터치하거나 오른쪽으로 밀어 문장을 채택합니다"></span>
-          <span class="ghost-line-tools">
-            <button id="ghostAddBtn" class="ghost-tool-btn add" type="button">+ 채택 ↵</button>
-            <button id="ghostNextBtn" class="ghost-tool-btn next" type="button" title="다른 제안 문장 보기">다른 문장 ↻</button>
-          </span>
-        </div>
-
-        <!-- 2순위 보조 입력 (첫 문장 이후): 필요할 때만 열어 키보드 팝업 방해 없이 직접 타이핑 -->
-        <div id="directComposeWrap" class="direct-compose-wrap hidden">
-          <button id="openComposeBtn" class="open-compose-btn" type="button">✎ 직접 문장 적어 넣기</button>
-          <div id="composeBox" class="compose-box hidden">
-            <textarea
-              id="composeInput"
-              class="compose-input"
-              rows="1"
-              placeholder="이어 적을 문장을 입력하세요..."
-              autocomplete="off"
-              autocorrect="off"
-              autocapitalize="off"
-              spellcheck="false"
-            ></textarea>
-            <div class="compose-actions">
-              <button id="cancelComposeBtn" class="ghost-tool-btn" type="button">닫기</button>
-              <button id="submitComposeBtn" class="ghost-tool-btn add" type="button">+ 본문에 넣기 ↵</button>
+          <!-- 2순위 보조 입력 (첫 문장 이후): 필요할 때만 열어 키보드 팝업 방해 없이 직접 타이핑 -->
+          <div id="directComposeWrap" class="direct-compose-wrap hidden">
+            <button id="openComposeBtn" class="open-compose-btn" type="button">✎ 직접 문장 적어 넣기</button>
+            <div id="composeBox" class="compose-box hidden">
+              <textarea
+                id="composeInput"
+                class="compose-input"
+                rows="1"
+                placeholder="이어 적을 문장을 입력하세요..."
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+              ></textarea>
+              <div class="compose-actions">
+                <button id="cancelComposeBtn" class="ghost-tool-btn" type="button">닫기</button>
+                <button id="submitComposeBtn" class="ghost-tool-btn add" type="button">+ 본문에 넣기 ↵</button>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- 노트 아래 조용히 펼쳐지는 사유의 말풍선 & 그 아래 선택 그룹핑 -->
+        <!-- 본문과 별도로 분리된 단일 ‘글귀 · 다음 문장 추천’ 데크 -->
         <aside id="passageCard" class="passage-card awaiting-reveal">
+          <div id="passageDeckHead" class="passage-deck-head">
+            <span id="passageDeckTitle" class="passage-deck-title">✦ 첫 문장 · 글귀 추천</span>
+            <span id="passageDeckHint" class="passage-deck-hint">터치하여 채택 · 좌측 밀어 다른 글귀</span>
+          </div>
+
           <div id="passageBubble" class="passage-bubble">
             <div id="passageRel" class="passage-rel hidden"></div>
             <blockquote id="passageQuote" class="passage-quote"></blockquote>
             <div class="passage-bubble-foot">
               <div id="passageSource" class="passage-source"></div>
-              <button id="bubbleInsertBtn" class="bubble-insert-btn" type="button">+ 인용하기</button>
+              <button id="bubbleInsertBtn" class="bubble-insert-btn" type="button">+ 채택하기 ↵</button>
             </div>
           </div>
 
@@ -230,6 +228,6 @@
   <!-- 하단 문학적 토스트 팝업 -->
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="/app.js?v=23"></script>
+  <script src="/app.js?v=24"></script>
 </body>
 </html>
