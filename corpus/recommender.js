@@ -249,29 +249,33 @@ function recommendPassage(db, opts = {}) {
     return sub.length > 0 ? sub : list;
   };
 
-  // 1) 같은 결 (동일 개념 공명)
+  // 1) 같은 결 (동일 개념 공명 + 구체 주제어 일치 우선 포함)
   if (mode === 'same_concept' && anchor) {
     const targetConcepts = anchor.concepts.length
       ? anchor.concepts
       : inferConcepts(anchor.text, anchor.source);
 
+    const hasTopicMatch = p =>
+      matchesEditorContext(p, lastParagraph || recentText) ||
+      countTokenOverlap(p, contextTokens) >= 1;
+
     let pool = filterByCat(
-      baseAll.filter(p => p.concepts.some(c => targetConcepts.includes(c)))
+      baseAll.filter(p => p.concepts.some(c => targetConcepts.includes(c)) || hasTopicMatch(p))
     );
     if (pool.length === 0) {
-      pool = baseAll.filter(p => p.concepts.some(c => targetConcepts.includes(c)));
+      pool = baseAll.filter(p => p.concepts.some(c => targetConcepts.includes(c)) || hasTopicMatch(p));
     }
     if (pool.length === 0) pool = filterByCat(baseAll);
 
     const { chosen, resetSeen } = pickBest(pool, excludeSet, currentId, p => {
-      let score = Math.random() * 1.2 + concisenessScore(p);
+      let score = Math.random() * 1.1 + concisenessScore(p);
       const overlap = p.concepts.filter(c => targetConcepts.includes(c)).length;
-      score += overlap * 3.2;
-      score += countTokenOverlap(p, contextTokens) * 2.4;
-      if (p.author !== anchor.author) score += 1.3;
-      if (p.cat !== anchor.cat) score += 0.6;
-      if (matchesEditorContext(p, lastParagraph || recentText)) score += 2.6;
-      else if (matchesEditorContext(p, editorText)) score += 1.2;
+      score += overlap * 2.6;
+      score += countTokenOverlap(p, contextTokens) * 3.0;
+      if (p.author !== anchor.author) score += 1.2;
+      if (p.cat !== anchor.cat) score += 0.5;
+      if (matchesEditorContext(p, lastParagraph || recentText)) score += 4.5;
+      else if (matchesEditorContext(p, editorText)) score += 2.2;
       return score;
     });
 
