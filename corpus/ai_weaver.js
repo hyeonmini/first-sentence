@@ -436,7 +436,69 @@ async function verifyProviderKey(provider, apiKey) {
   throw new Error('UNKNOWN_PROVIDER');
 }
 
+function isAuthorAvoided(candidateAuthor = '', avoidAuthors = []) {
+  const cand = String(candidateAuthor || '').replace(/\s+/g, '').toLowerCase();
+  if (!cand) return false;
+  for (const a of avoidAuthors) {
+    const av = String(a || '').replace(/\s+/g, '').toLowerCase();
+    if (!av) continue;
+    if (cand === av || cand.includes(av) || av.includes(cand)) return true;
+  }
+  return false;
+}
+
+function pickDiversePromptPassages(db, editorText = '', avoidAuthors = [], limit = 3) {
+  if (!db) return [];
+  let rows = [];
+  try {
+    rows = db.prepare('SELECT author, source, text, cat, tags_pattern FROM passages').all();
+  } catch (_) {
+    return [];
+  }
+  if (!rows.length) return [];
+
+  const cleanText = String(editorText || '').trim();
+  const tokens = cleanText
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .map(t => t.trim())
+    .filter(t => t.length >= 2)
+    .map(t => t.replace(/(은|는|이|가|을|를|의|에|에서|로|으로|와|과|도|만|까지|부터|처럼|보다|하고|이다|한다|했다|된다|있다|없다)$/, ''))
+    .filter(t => t.length >= 2);
+
+  const scored = [];
+  for (const r of rows) {
+    if (isAuthorAvoided(r.author, avoidAuthors) || isAuthorAvoided(r.source, avoidAuthors)) continue;
+    if (cleanText && cleanText.includes(String(r.text || '').slice(0, 16))) continue;
+
+    let score = Math.random() * 1.4;
+    if (cleanText && r.tags_pattern) {
+      try {
+        if (new RegExp(r.tags_pattern).test(cleanText)) score += 5.0;
+      } catch (_) {}
+    }
+    const hay = `${r.text || ''} ${r.source || ''}`;
+    for (const tk of tokens) {
+      if (hay.includes(tk)) score += 2.2;
+    }
+    scored.push({ row: r, score });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  const picked = [];
+  const usedAuthors = new Set();
+  for (const item of scored) {
+    const authKey = String(item.row.author || '').trim();
+    if (usedAuthors.has(authKey)) continue;
+    usedAuthors.add(authKey);
+    picked.push(item.row);
+    if (picked.length >= limit) break;
+  }
+  return picked;
+}
+
 async function weaveNextParagraph({
+  db = null,
   provider = 'gemini',
   apiKey,
   direction = 'reson',
@@ -461,8 +523,15 @@ async function weaveNextParagraph({
       : ctx.styleHint;
 
   const hasCurrentDraft = Boolean(currentDraft && currentDraft.paragraph);
-  const avoidLine = (!hasCurrentDraft && Array.isArray(avoidAuthors) && avoidAuthors.length > 0)
-    ? `\n- 직전에 참고했으니 피해야 할 작가: ${avoidAuthors.slice(-8).join(', ')}`
+  const avoidList = Array.isArray(avoidAuthors) ? avoidAuthors.filter(Boolean).slice(-12) : [];
+  const avoidLine = (!hasCurrentDraft && avoidList.length > 0)
+    ? `\n- [절대 제외할 작가]: ${avoidList.join(', ')} (위 작가와 작품은 방금 사용했으므로 이번에는 절대 고르지 마세요)`
+    : '';
+  const diverseCandidates = !hasCurrentDraft
+    ? pickDiversePromptPassages(db, editorText, avoidList, 3)
+    : [];
+  const candidatesBlock = diverseCandidates.length > 0
+    ? `\n[참고할 수 있는 서로 다른 시선의 글귀 후보 — 매번 같은 작가만 쓰지 말고 아래 중 하나를 참고하거나, 목록 외 다른 작가를 고르세요]\n${diverseCandidates.map((c, i) => `${i + 1}. "${c.text}" — ${c.source}`).join('\n')}\n`
     : '';
 
   let userPrompt = `${dirPrompt}
@@ -471,7 +540,7 @@ async function weaveNextParagraph({
 - 말투·농도: ${STYLE_TONE_GUIDES[toneKey]}
 - 분량·호흡: ${lenCfg.rule}
 - 종결 어미: ${endingHint}${avoidLine}
-`;
+${candidatesBlock}`;
 
   if (hasCurrentDraft) {
     userPrompt += `

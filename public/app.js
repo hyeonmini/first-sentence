@@ -1901,7 +1901,7 @@ async function requestWeave(direction = 'reson', { forceNew = false, styleReweav
       body: JSON.stringify({
         direction: effectiveDir,
         editorText: contextText,
-        avoidAuthors: state.recentAuthors.slice(-8),
+        avoidAuthors: state.recentAuthors.slice(-12),
         styleOptions: state.weaveStyle,
         currentDraft: (styleReweave && state.wovenDraft) ? state.wovenDraft : null
       })

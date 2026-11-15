@@ -907,6 +907,7 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req);
       try {
         const woven = await weaveNextParagraph({
+          db,
           provider: aiCreds.aiProvider,
           apiKey: aiCreds.activeKey,
           direction: body.direction || 'reson',
