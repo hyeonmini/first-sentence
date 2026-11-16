@@ -1247,6 +1247,7 @@ function renderUserSection() {
         </div>
         <button type="button" id="logoutBtn" class="muted-btn">로그아웃</button>
       </div>
+      <p class="user-storage-note synced">작성한 글과 AI 설정이 이 Google 계정에 자동 보관됩니다.</p>
     `;
     $('logoutBtn').addEventListener('click', async () => {
       try {
@@ -1258,7 +1259,7 @@ function renderUserSection() {
       if (data.sessionToken) setSessionToken(data.sessionToken);
       state.pin = '';
       sessionStorage.removeItem('dw_pin');
-      toast('로그아웃되었습니다');
+      toast('로그아웃되었습니다 (다시 로그인하면 저장된 글이 복원됩니다)');
       await loadBootstrap();
     });
     return;
@@ -1274,6 +1275,9 @@ function renderUserSection() {
       </svg>
       <span>Google로 계속하기</span>
     </button>
+    <p class="user-storage-note">
+      <strong>로그인 없이도 현재 브라우저에 자동 저장됩니다.</strong> 기기를 바꾸거나 브라우저 기록을 지워도 잃지 않으려면 계정을 연결하세요. 지금까지 쓴 글과 AI 키가 그대로 이어집니다.
+    </p>
   `;
 
   $('openGoogleLoginBtn').addEventListener('click', e => {
@@ -1441,20 +1445,30 @@ function setMode(nextMode) {
 function updateSaveStateIndicator(status = '') {
   const el = $('saveStateLabel');
   if (!el) return;
+  const isGoogle = Boolean(state.user && state.user.authType === 'google');
   const hasText = Boolean($('editor') && $('editor').value.trim());
+
+  el.classList.toggle('clickable', !isGoogle);
+  el.title = isGoogle
+    ? 'Google 계정에 안전하게 동기화됩니다'
+    : '현재 브라우저에 자동 저장됩니다 · 눌러서 Google 계정 연결 안내 보기';
+
   if (!hasText && !status) {
-    el.textContent = '';
+    el.textContent = isGoogle ? '' : '비로그인 자동저장';
     el.classList.remove('saved');
+    el.classList.toggle('guest-idle', !isGoogle);
     return;
   }
+
+  el.classList.remove('guest-idle');
   if (status === 'saving') {
     el.textContent = '저장 중…';
     el.classList.remove('saved');
   } else if (status === 'manual') {
-    el.textContent = '저장 완료 ✓';
+    el.textContent = isGoogle ? '계정에 저장 완료 ✓' : '임시 저장됨 ✓ · 연동';
     el.classList.add('saved');
   } else {
-    el.textContent = hasText ? '자동 저장됨 ✓' : '';
+    el.textContent = hasText ? (isGoogle ? '계정에 저장됨 ✓' : '임시 저장됨 ✓ · 연동') : '';
     el.classList.toggle('saved', hasText);
   }
 }
@@ -2652,7 +2666,16 @@ async function saveNow({ manual = false } = {}) {
         clearTimeout(btn._t);
         btn._t = setTimeout(() => { btn.textContent = '저장'; }, 1500);
       }
-      toast('서재에 안전하게 갈무리되었습니다');
+      const isGoogle = Boolean(state.user && state.user.authType === 'google');
+      if (isGoogle) {
+        toast('Google 계정 서재에 안전하게 갈무리되었습니다');
+      } else {
+        toast('현재 브라우저에 저장됨 · 기기 이동/영구 보관은 계정 연결', {
+          actionLabel: 'Google 연결',
+          duration: 4200,
+          onAction: () => openArchive()
+        });
+      }
     }
   }
 }
@@ -3018,6 +3041,16 @@ window.addEventListener('DOMContentLoaded', () => {
       openArchive();
     }
   });
+
+  if ($('saveStateLabel')) {
+    $('saveStateLabel').addEventListener('click', e => {
+      const isGoogle = Boolean(state.user && state.user.authType === 'google');
+      if (!isGoogle) {
+        e.stopPropagation();
+        openArchive();
+      }
+    });
+  }
 
   if ($('saveNowBtn')) {
     $('saveNowBtn').addEventListener('click', () => {

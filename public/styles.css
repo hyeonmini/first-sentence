@@ -162,11 +162,30 @@ body.typing .topbar:hover {
   font-size: 11.5px;
   color: var(--sub);
   opacity: 0.85;
+  white-space: nowrap;
   transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.save-state.guest-idle {
+  font-size: 11px;
+  color: var(--faint);
+  opacity: 0.9;
 }
 
 .save-state.saved {
   color: var(--accent);
+}
+
+.save-state.clickable {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.save-state.clickable:hover {
+  opacity: 1;
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
 }
 
 .muted {
@@ -1561,6 +1580,26 @@ body.typing .passage-card:hover {
   height: 18px;
   flex-shrink: 0;
   display: block;
+}
+
+.user-storage-note {
+  margin-top: 9px;
+  padding: 0 2px;
+  font-size: 11.5px;
+  line-height: 1.58;
+  color: var(--sub);
+  word-break: keep-all;
+}
+
+.user-storage-note strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.user-storage-note.synced {
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--faint);
 }
 
 .google-form {
