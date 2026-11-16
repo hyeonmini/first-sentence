@@ -63,6 +63,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL DEFAULT 'default',
     title TEXT NOT NULL DEFAULT '',
+    custom_title TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',
     crystals_json TEXT NOT NULL DEFAULT '[]',
     word_count INTEGER NOT NULL DEFAULT 0,
@@ -80,6 +81,7 @@ db.exec(`
 
 try { db.exec(`ALTER TABLE writings ADD COLUMN crystals_json TEXT NOT NULL DEFAULT '[]';`); } catch (_) {}
 try { db.exec(`ALTER TABLE writings ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default';`); } catch (_) {}
+try { db.exec(`ALTER TABLE writings ADD COLUMN custom_title TEXT NOT NULL DEFAULT '';`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_writings_user_date ON writings(user_id, created_date DESC);`); } catch (_) {}
 
 function getSetting(key, fallback = '') {
@@ -231,12 +233,45 @@ function getLocalDateString(date = new Date()) {
   return `${y}-${m}-${d}`;
 }
 
-function extractFirstLineTitle(content) {
-  const firstLine = (content || '')
-    .split('\n')
+function deriveAutoTitle(content) {
+  const firstLine = String(content || '')
+    .split(/\n+/)
     .map(l => l.trim())
     .find(Boolean) || '';
-  return firstLine.replace(/^[-#*>\s]+/, '').slice(0, 60);
+  if (!firstLine) return '';
+
+  let body = firstLine.replace(/^[-#*>\s]+/, '');
+  const quoteMatch = body.match(/^["“](.+?)["”]\s*(?:—|--|―)\s*.+$/);
+  if (quoteMatch) {
+    body = quoteMatch[1].trim();
+  } else {
+    body = body.replace(/^["“‘]+|["”’]+$/g, '').trim();
+  }
+
+  const firstSent = (body.split(/[.?!…]+/)[0] || body).trim();
+  if (!firstSent) return '';
+
+  const MAX_LEN = 22;
+  if (firstSent.length <= MAX_LEN) {
+    return firstSent.replace(/[,;:\s]+$/, '');
+  }
+
+  const commaIdx = firstSent.indexOf(',');
+  if (commaIdx >= 5 && commaIdx <= 20) {
+    return firstSent.slice(0, commaIdx).trim();
+  }
+
+  const words = firstSent.split(/\s+/);
+  let acc = '';
+  for (const w of words) {
+    const next = acc ? `${acc} ${w}` : w;
+    if (next.length > 19) break;
+    acc = next;
+  }
+  if (acc.length >= 5) {
+    return `${acc.replace(/[,;:\s]+$/, '')}…`;
+  }
+  return `${firstSent.slice(0, 19).trim()}…`;
 }
 
 function countWordsAndChars(text) {
@@ -260,7 +295,10 @@ function syncMarkdownFile(writing) {
       .trim()
       .slice(0, 40) || '기록';
     const filename = `${writing.created_date}_${writing.id}_${safeTitle}.md`;
-    fs.writeFileSync(path.join(MD_DIR, filename), writing.content.trim() + '\n', 'utf8');
+    const mdBody = writing.title
+      ? `# ${writing.title}\n\n${writing.content.trim()}\n`
+      : `${writing.content.trim()}\n`;
+    fs.writeFileSync(path.join(MD_DIR, filename), mdBody, 'utf8');
   } catch (_) {}
 }
 
@@ -752,20 +790,25 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/bootstrap' && req.method === 'GET') {
       const rawRows = db.prepare(`
-        SELECT id, title, content, crystals_json, char_count, created_date, updated_at
+        SELECT id, title, custom_title, content, crystals_json, char_count, created_date, updated_at
         FROM writings
         WHERE user_id = ?
         ORDER BY created_date DESC, id DESC
       `).all(user.id);
 
-      const writings = rawRows.map(w => ({
-        id: w.id,
-        title: w.title,
-        content: w.content || '',
-        crystals: (() => { try { return JSON.parse(w.crystals_json || '[]'); } catch (_) { return []; } })(),
-        char_count: w.char_count,
-        created_date: w.created_date
-      }));
+      const writings = rawRows.map(w => {
+        const customTitle = String(w.custom_title || '').trim();
+        const autoTitle = deriveAutoTitle(w.content || '');
+        return {
+          id: w.id,
+          title: customTitle || autoTitle,
+          custom_title: customTitle,
+          content: w.content || '',
+          crystals: (() => { try { return JSON.parse(w.crystals_json || '[]'); } catch (_) { return []; } })(),
+          char_count: w.char_count,
+          created_date: w.created_date
+        };
+      });
 
       const today = getLocalDateString();
       const todayEntry = writings.find(w => w.created_date === today);
@@ -809,17 +852,18 @@ const server = http.createServer(async (req, res) => {
       const now = new Date().toISOString();
       const createdDate = body.created_date || getLocalDateString();
       const content = String(body.content || '');
+      const customTitle = String(body.custom_title || '').trim().slice(0, 60);
       const crystals = Array.isArray(body.crystals) ? body.crystals : [];
-      const title = extractFirstLineTitle(content);
+      const title = customTitle || deriveAutoTitle(content);
       const { wordCount, charCount } = countWordsAndChars(content);
 
       const info = db.prepare(`
-        INSERT INTO writings (user_id, title, content, crystals_json, word_count, char_count, created_date, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(user.id, title, content, JSON.stringify(crystals), wordCount, charCount, createdDate, now, now);
+        INSERT INTO writings (user_id, title, custom_title, content, crystals_json, word_count, char_count, created_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(user.id, title, customTitle, content, JSON.stringify(crystals), wordCount, charCount, createdDate, now, now);
 
       const id = Number(info.lastInsertRowid);
-      const writing = { id, title, content, crystals, char_count: charCount, created_date: createdDate };
+      const writing = { id, title, custom_title: customTitle, content, crystals, char_count: charCount, created_date: createdDate };
       syncMarkdownFile(writing);
 
       return sendJson(res, 201, {
@@ -835,23 +879,27 @@ const server = http.createServer(async (req, res) => {
 
       const body = await parseBody(req);
       const content = body.content !== undefined ? String(body.content) : existing.content;
+      const customTitle = body.custom_title !== undefined
+        ? String(body.custom_title || '').trim().slice(0, 60)
+        : String(existing.custom_title || '').trim();
       let crystals = [];
       try { crystals = JSON.parse(existing.crystals_json || '[]'); } catch (_) {}
       if (Array.isArray(body.crystals)) crystals = body.crystals;
 
-      const title = extractFirstLineTitle(content);
+      const title = customTitle || deriveAutoTitle(content);
       const { wordCount, charCount } = countWordsAndChars(content);
       const now = new Date().toISOString();
 
       db.prepare(`
         UPDATE writings
-        SET title = ?, content = ?, crystals_json = ?, word_count = ?, char_count = ?, updated_at = ?
+        SET title = ?, custom_title = ?, content = ?, crystals_json = ?, word_count = ?, char_count = ?, updated_at = ?
         WHERE id = ? AND user_id = ?
-      `).run(title, content, JSON.stringify(crystals), wordCount, charCount, now, id, user.id);
+      `).run(title, customTitle, content, JSON.stringify(crystals), wordCount, charCount, now, id, user.id);
 
       const writing = {
         id,
         title,
+        custom_title: customTitle,
         content,
         crystals,
         char_count: charCount,

@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=29" />
+  <link rel="stylesheet" href="/styles.css?v=30" />
   <script>
     (function () {
       var pref = localStorage.getItem('dw_theme_pref') || 'auto';
@@ -62,6 +62,32 @@
 
         <!-- 내 원고 종이 영역 -->
         <div id="manuscriptZone" class="manuscript-zone">
+          <!-- 글 제목 영역 (터치하여 직접 지정 · 비워두면 첫 문장으로 자동 지정) -->
+          <div id="docTitleWrap" class="doc-title-wrap is-placeholder">
+            <div id="docTitleDisplayRow" class="doc-title-display-row" role="button" tabindex="0" title="터치하여 제목을 직접 지정하거나 변경합니다">
+              <h1 id="docTitleText" class="doc-title-text">제목 붙이기</h1>
+              <span id="docTitleBadge" class="doc-title-badge">비워두면 첫 문장으로 자동 지정</span>
+            </div>
+            <div id="docTitleEditRow" class="doc-title-edit-row hidden">
+              <input
+                id="docTitleInput"
+                class="doc-title-input"
+                type="text"
+                maxlength="60"
+                placeholder="제목을 입력하세요 (비워두면 첫 문장으로 자동 지정)"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+              />
+              <div class="doc-title-edit-actions">
+                <button id="resetAutoTitleBtn" class="ghost-tool-btn hidden" type="button">자동 제목으로</button>
+                <button id="cancelTitleBtn" class="ghost-tool-btn" type="button">취소</button>
+                <button id="saveTitleBtn" class="ghost-tool-btn add" type="button">확인 ✓</button>
+              </div>
+            </div>
+          </div>
+
           <!-- 첫 문장 단계: 커서가 깜박이는 첫 줄 입력 영역 -->
           <div id="firstLineWrap" class="first-line-wrap">
             <div class="first-line-field">
@@ -177,6 +203,10 @@
 
         <div id="publishFoot" class="distill-foot">
           <div class="distill-checks">
+            <label id="titleToggleWrap" class="num-check">
+              <input type="checkbox" id="titleToggle" />
+              <span>제목 포함</span>
+            </label>
             <label class="num-check">
               <input type="checkbox" id="sigToggle" checked />
               <span>‘첫 문장’ 영감 문구 포함</span>
@@ -235,6 +265,6 @@
   <!-- 하단 문학적 토스트 팝업 -->
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="/app.js?v=29"></script>
+  <script src="/app.js?v=30"></script>
 </body>
 </html>

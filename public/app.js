@@ -151,6 +151,7 @@ const state = {
   justMovedIdx: -1,
   lastClosedBlockCount: 0,
   composeOpen: false,
+  editingTitle: false,
   firstLineComposing: false,
   passageRevealed: false,
   passageRevealTimer: null,
@@ -934,7 +935,137 @@ function commitFirstLineInput({ triggerSave = true, triggerRecommend = true } = 
   return true;
 }
 
+function deriveAutoTitle(content) {
+  const firstLine = String(content || '')
+    .split(/\n+/)
+    .map(l => l.trim())
+    .find(Boolean) || '';
+  if (!firstLine) return '';
+
+  let body = firstLine.replace(/^[-#*>\s]+/, '');
+  const quoteMatch = body.match(/^["“](.+?)["”]\s*(?:—|--|―)\s*.+$/);
+  if (quoteMatch) {
+    body = quoteMatch[1].trim();
+  } else {
+    body = body.replace(/^["“‘]+|["”’]+$/g, '').trim();
+  }
+
+  const firstSent = (body.split(/[.?!…]+/)[0] || body).trim();
+  if (!firstSent) return '';
+
+  const MAX_LEN = 22;
+  if (firstSent.length <= MAX_LEN) {
+    return firstSent.replace(/[,;:\s]+$/, '');
+  }
+
+  const commaIdx = firstSent.indexOf(',');
+  if (commaIdx >= 5 && commaIdx <= 20) {
+    return firstSent.slice(0, commaIdx).trim();
+  }
+
+  const words = firstSent.split(/\s+/);
+  let acc = '';
+  for (const w of words) {
+    const next = acc ? `${acc} ${w}` : w;
+    if (next.length > 19) break;
+    acc = next;
+  }
+  if (acc.length >= 5) {
+    return `${acc.replace(/[,;:\s]+$/, '')}…`;
+  }
+  return `${firstSent.slice(0, 19).trim()}…`;
+}
+
+function renderTitleArea() {
+  const wrap = $('docTitleWrap');
+  const dispRow = $('docTitleDisplayRow');
+  const editRow = $('docTitleEditRow');
+  const txtEl = $('docTitleText');
+  const badgeEl = $('docTitleBadge');
+  const resetBtn = $('resetAutoTitleBtn');
+  if (!wrap || !dispRow || !editRow || !txtEl || !badgeEl) return;
+
+  const w = getActiveWriting();
+  const customTitle = String(w?.custom_title || '').trim();
+  const liveContent = ($('editor') ? $('editor').value : '').trim();
+  const autoTitle = deriveAutoTitle(liveContent);
+  const effectiveTitle = customTitle || autoTitle;
+
+  if (w) {
+    w.title = effectiveTitle;
+  }
+
+  if (state.editingTitle) {
+    wrap.classList.remove('is-placeholder');
+    dispRow.classList.add('hidden');
+    editRow.classList.remove('hidden');
+    if (resetBtn) resetBtn.classList.toggle('hidden', !customTitle);
+    const inp = $('docTitleInput');
+    if (inp) {
+      inp.placeholder = autoTitle
+        ? `비워두면 ‘${autoTitle}’(으)로 자동 지정`
+        : '제목을 입력하세요 (비워두면 첫 문장으로 자동 지정)';
+    }
+    return;
+  }
+
+  dispRow.classList.remove('hidden');
+  editRow.classList.add('hidden');
+
+  if (customTitle) {
+    wrap.classList.remove('is-placeholder');
+    txtEl.textContent = customTitle;
+    badgeEl.textContent = '제목 변경 ✎';
+  } else if (autoTitle) {
+    wrap.classList.remove('is-placeholder');
+    txtEl.textContent = autoTitle;
+    badgeEl.textContent = '자동 제목 · 터치해 변경';
+  } else {
+    wrap.classList.add('is-placeholder');
+    txtEl.textContent = '+ 제목 붙이기';
+    badgeEl.textContent = '비워두면 첫 문장으로 자동 지정';
+  }
+}
+
+function openTitleEditor() {
+  const w = getActiveWriting();
+  if (!w) return;
+  state.editingTitle = true;
+  const inp = $('docTitleInput');
+  if (inp) inp.value = String(w.custom_title || '').trim();
+  renderTitleArea();
+  requestAnimationFrame(() => {
+    if (inp) {
+      inp.focus();
+      inp.setSelectionRange(inp.value.length, inp.value.length);
+    }
+  });
+}
+
+function commitTitleEdit({ forceAuto = false, triggerSave = true } = {}) {
+  const w = getActiveWriting();
+  const inp = $('docTitleInput');
+  state.editingTitle = false;
+  if (!w) {
+    renderTitleArea();
+    return;
+  }
+  const nextCustom = forceAuto ? '' : String(inp ? inp.value : '').trim().slice(0, 60);
+  const prevCustom = String(w.custom_title || '').trim();
+  w.custom_title = nextCustom;
+  w.title = nextCustom || deriveAutoTitle($('editor') ? $('editor').value : '');
+  if (inp) inp.blur();
+  renderTitleArea();
+  renderArchive();
+  if (triggerSave && nextCustom !== prevCustom) {
+    scheduleSave();
+  }
+}
+
 function flushPendingInputs() {
+  if (state.editingTitle) {
+    commitTitleEdit({ triggerSave: false });
+  }
   commitFirstLineInput({ triggerSave: false, triggerRecommend: false });
   if (state.composeOpen && $('composeInput') && $('composeInput').value.trim()) {
     const val = $('composeInput').value.trim();
@@ -1328,6 +1459,7 @@ async function selectWriting(id) {
   const content = w.content || '';
   if ($('firstLineInput')) $('firstLineInput').value = '';
   state.firstLineComposing = false;
+  state.editingTitle = false;
   state.docBlocks = parseContentToBlocks(content);
   state.selectedBlockIdx = -1;
   state.editingBlockIdx = -1;
@@ -1378,6 +1510,7 @@ async function createNewWriting() {
     state.activeId = data.writing.id;
     if ($('firstLineInput')) $('firstLineInput').value = '';
     state.firstLineComposing = false;
+    state.editingTitle = false;
     state.docBlocks = [];
     state.selectedBlockIdx = -1;
     state.editingBlockIdx = -1;
@@ -1478,9 +1611,10 @@ function updateWriteMeta() {
   const trimmed = $('editor').value.trim();
   $('dateLabel').textContent = formatKoreanFullDate(w ? w.created_date : state.today);
   $('metaHint').textContent = trimmed.length > 0 ? `${trimmed.length.toLocaleString()}자` : '';
-  if ($('saveNowBtn')) $('saveNowBtn').classList.toggle('dimmed', trimmed.length === 0);
+  if ($('saveNowBtn')) $('saveNowBtn').classList.toggle('dimmed', trimmed.length === 0 && !(w && w.custom_title));
   $('rightNavBtn').textContent = '발행';
   $('rightNavBtn').classList.toggle('dimmed', trimmed.length === 0);
+  renderTitleArea();
   if (!state.saveTimer) updateSaveStateIndicator();
 }
 
@@ -2640,18 +2774,20 @@ async function saveNow({ manual = false } = {}) {
   const w = getActiveWriting();
   if (!w) return;
   const content = $('editor').value;
-  if (manual && !content.trim()) {
+  const customTitle = String(w.custom_title || '').trim();
+  if (manual && !content.trim() && !customTitle) {
     toast('먼저 첫 문장을 작성해주세요');
     return;
   }
   w.content = content;
+  w.title = customTitle || deriveAutoTitle(content);
 
   if (manual) updateSaveStateIndicator('saving');
 
   const res = await apiFetch(`/api/writings/${w.id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content, crystals: w.crystals || [] })
+    body: JSON.stringify({ content, custom_title: customTitle, crystals: w.crystals || [] })
   });
   if (res.ok) {
     const data = await res.json();
@@ -2692,6 +2828,9 @@ function prepareDistillSegments() {
   const savedSet = new Set((w && Array.isArray(w.crystals)) ? w.crystals : []);
 
   state.hookInverted = false;
+  if ($('titleToggle')) {
+    $('titleToggle').checked = Boolean(w && w.custom_title && w.custom_title.trim());
+  }
   state.segments = rawLines.map(text => ({
     text,
     picked: savedSet.has(text)
@@ -2797,10 +2936,16 @@ function renderDistillView() {
   }
   $('metaHint').textContent = pickedCount > 0 ? `${pickedCount}단락 발췌됨` : '전체 발행';
 
+  const w = getActiveWriting();
+  const docTitle = String(w?.custom_title || deriveAutoTitle($('editor').value) || '').trim();
+  const useTitle = Boolean($('titleToggle') && $('titleToggle').checked && docTitle);
   const useSig = !$('sigToggle') || $('sigToggle').checked;
-  const fullDistillText = useSig
-    ? [...activeLines, PUBLISH_SIGNATURE].join('\n\n')
-    : activeLines.join('\n\n');
+
+  const composedParts = [];
+  if (useTitle) composedParts.push(`〈${docTitle}〉`);
+  composedParts.push(...activeLines);
+  if (useSig) composedParts.push(PUBLISH_SIGNATURE);
+  const fullDistillText = composedParts.join('\n\n');
 
   const limit = state.platform === 'threads' ? 500 : 280;
   const cards = splitTextForPlatform(fullDistillText, limit - 10);
@@ -2922,6 +3067,59 @@ window.addEventListener('DOMContentLoaded', () => {
   init();
 
   const ed = $('editor');
+
+  if ($('docTitleDisplayRow')) {
+    $('docTitleDisplayRow').addEventListener('click', e => {
+      e.stopPropagation();
+      openTitleEditor();
+    });
+    $('docTitleDisplayRow').addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openTitleEditor();
+      }
+    });
+  }
+
+  if ($('docTitleInput')) {
+    const tInp = $('docTitleInput');
+    tInp.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault();
+        commitTitleEdit({ triggerSave: true });
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        state.editingTitle = false;
+        renderTitleArea();
+      }
+    });
+  }
+
+  if ($('saveTitleBtn')) {
+    $('saveTitleBtn').addEventListener('mousedown', e => e.preventDefault());
+    $('saveTitleBtn').addEventListener('click', e => {
+      e.stopPropagation();
+      commitTitleEdit({ triggerSave: true });
+    });
+  }
+
+  if ($('cancelTitleBtn')) {
+    $('cancelTitleBtn').addEventListener('mousedown', e => e.preventDefault());
+    $('cancelTitleBtn').addEventListener('click', e => {
+      e.stopPropagation();
+      state.editingTitle = false;
+      renderTitleArea();
+    });
+  }
+
+  if ($('resetAutoTitleBtn')) {
+    $('resetAutoTitleBtn').addEventListener('mousedown', e => e.preventDefault());
+    $('resetAutoTitleBtn').addEventListener('click', e => {
+      e.stopPropagation();
+      commitTitleEdit({ forceAuto: true, triggerSave: true });
+      toast('첫 문장 기반 자동 제목으로 전환했습니다');
+    });
+  }
 
   if ($('firstLineInput')) {
     const fInp = $('firstLineInput');
@@ -3134,6 +3332,12 @@ window.addEventListener('DOMContentLoaded', () => {
     toast(state.hookInverted ? '끝문장을 첫 줄로 올렸습니다' : '원래 문단 순서로 되돌렸습니다');
   });
 
+  if ($('titleToggle')) {
+    $('titleToggle').addEventListener('change', () => {
+      renderDistillView();
+    });
+  }
+
   if ($('sigToggle')) {
     $('sigToggle').addEventListener('change', () => {
       renderDistillView();
@@ -3183,6 +3387,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     state.pin = '';
     sessionStorage.removeItem('dw_pin');
+    state.editingTitle = false;
     state.docBlocks = [];
     syncBlocksToEditor();
     closeArchive();
