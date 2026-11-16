@@ -334,23 +334,7 @@ function resolveUserFromRequest(req, { createIfMissing = false } = {}) {
     };
   }
 
-  // 기존 로컬 'default' 유저에 작성된 글이 있고 아직 세션이 발급된 적 없다면 첫 방문자에게 연결
-  const defaultWritings = db.prepare("SELECT COUNT(*) AS cnt FROM writings WHERE user_id = 'default'").get();
-  const defaultSessions = db.prepare("SELECT COUNT(*) AS cnt FROM sessions WHERE user_id = 'default'").get();
-  if ((defaultWritings?.cnt || 0) > 0 && (defaultSessions?.cnt || 0) === 0) {
-    const defaultUser = db.prepare("SELECT * FROM users WHERE id = 'default'").get();
-    if (defaultUser) {
-      const firstToken = crypto.randomBytes(24).toString('hex');
-      db.prepare('INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)').run(
-        firstToken,
-        'default',
-        new Date().toISOString()
-      );
-      return { user: defaultUser, token: firstToken };
-    }
-  }
-
-  // 그 외 모든 새 방문자에게는 독립된 게스트 계정 + 전용 세션 토큰을 발급하여 다른 사용자와 글/API 키가 섞이지 않도록 완벽히 격리
+  // 모든 새 방문자에게는 독립된 게스트 계정 + 전용 세션 토큰을 발급하여 다른 사용자와 글/API 키가 섞이지 않도록 완벽히 격리
   const now = new Date().toISOString();
   const guestId = `guest_${crypto.randomBytes(8).toString('hex')}`;
   const newToken = crypto.randomBytes(24).toString('hex');
@@ -480,22 +464,79 @@ const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()'
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' data: https://lh3.googleusercontent.com https://*.googleusercontent.com",
+    "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com",
+    "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'"
+  ].join('; ')
 };
 
-// PIN 잠금 해제 브루트포스 방어용 IP 레이트리미터
-const unlockAttempts = new Map();
-function checkUnlockRateLimit(req) {
-  const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+// IP 기반 레이트 리미터 (PIN 브루트포스 + API 남용/봇 방지)
+const rateLimitBuckets = new Map();
+function getClientIp(req) {
+  return String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+}
+
+function checkRateLimit(req, bucket, limit, windowMs) {
+  const ip = getClientIp(req);
+  const key = `${bucket}:${ip}`;
   const now = Date.now();
-  const entry = unlockAttempts.get(ip);
+  const entry = rateLimitBuckets.get(key);
   if (!entry || now > entry.resetAt) {
-    unlockAttempts.set(ip, { count: 1, resetAt: now + 5 * 60 * 1000 });
+    rateLimitBuckets.set(key, { count: 1, resetAt: now + windowMs });
     return true;
   }
   entry.count += 1;
-  return entry.count <= 10;
+  return entry.count <= limit;
 }
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of rateLimitBuckets.entries()) {
+    if (now > v.resetAt) rateLimitBuckets.delete(k);
+  }
+}, 5 * 60 * 1000).unref();
+
+function checkUnlockRateLimit(req) {
+  return checkRateLimit(req, 'unlock', 10, 5 * 60 * 1000);
+}
+
+// 7일 이상 지난 빈 게스트 계정·빈 원고·만료 세션 주기적 정리 (DB 비대화 방지)
+function cleanupStaleEmptyGuests() {
+  try {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const staleGuests = db.prepare(`
+      SELECT u.id FROM users u
+      WHERE u.auth_type = 'guest'
+        AND u.id != 'default'
+        AND u.last_login_at < ?
+        AND u.gemini_key = '' AND u.openai_key = '' AND u.claude_key = ''
+        AND NOT EXISTS (
+          SELECT 1 FROM writings w WHERE w.user_id = u.id AND w.char_count > 0
+        )
+    `).all(cutoff);
+    if (!staleGuests.length) return;
+    const delWritings = db.prepare('DELETE FROM writings WHERE user_id = ?');
+    const delSessions = db.prepare('DELETE FROM sessions WHERE user_id = ?');
+    const delUser = db.prepare('DELETE FROM users WHERE id = ?');
+    for (const g of staleGuests) {
+      delWritings.run(g.id);
+      delSessions.run(g.id);
+      delUser.run(g.id);
+    }
+  } catch (_) {}
+}
+cleanupStaleEmptyGuests();
+setInterval(cleanupStaleEmptyGuests, 6 * 60 * 60 * 1000).unref();
 
 function sendJson(res, status, data) {
   res.writeHead(status, {
@@ -540,6 +581,33 @@ const server = http.createServer(async (req, res) => {
   try {
     const urlObj = new URL(req.url, `http://${req.headers.host}`);
     const pathname = urlObj.pathname;
+
+    if (pathname.startsWith('/api/')) {
+      if (!checkRateLimit(req, 'api_all', 240, 60 * 1000)) {
+        return sendJson(res, 429, { error: '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' });
+      }
+      if (pathname === '/api/passages/update-now' && req.method === 'POST') {
+        if (!checkRateLimit(req, 'update_now', 4, 10 * 60 * 1000)) {
+          return sendJson(res, 429, { error: '아카이브 업데이트 요청이 너무 잦습니다. 잠시 후 다시 시도해주세요.' });
+        }
+      }
+      if (pathname === '/api/writings' && req.method === 'POST') {
+        if (!checkRateLimit(req, 'create_writing', 20, 10 * 60 * 1000)) {
+          return sendJson(res, 429, { error: '새 종이 생성 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' });
+        }
+      }
+      if (pathname === '/api/weave' && req.method === 'POST') {
+        if (!checkRateLimit(req, 'weave', 60, 5 * 60 * 1000)) {
+          return sendJson(res, 429, { error: '문장 제안 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' });
+        }
+      }
+      if ((pathname === '/api/auth/google' || pathname === '/api/ai/config' || pathname === '/api/ai/key') && req.method === 'POST') {
+        if (!checkRateLimit(req, 'auth_cfg', 20, 10 * 60 * 1000)) {
+          return sendJson(res, 429, { error: '인증/설정 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' });
+        }
+      }
+    }
+
     const shouldCreateSession = pathname.startsWith('/api/');
     const { user, token: resolvedToken } = resolveUserFromRequest(req, {
       createIfMissing: shouldCreateSession
